@@ -65,7 +65,7 @@ def _merchant_receivers(df: pd.DataFrame) -> Set[str]:
         mean = amounts.mean()
         if mean == 0:
             continue
-        cv = amounts.std() / mean
+        cv = amounts.std(ddof=1) / mean  # sample std; population std underestimates on n=10
         if cv > MERCHANT_AMOUNT_CV_THRESHOLD:
             excluded.add(receiver)
     if excluded:

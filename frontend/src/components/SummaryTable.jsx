@@ -96,21 +96,35 @@ export default function SummaryTable({ rings, accounts, type }) {
     return <span className="sort-arrow active">{sortDir === 'asc' ? '↑' : '↓'}</span>
   }
 
+  /* ── Compute filtered lists unconditionally (hooks must not be conditional) */
+  const filteredRings = useMemo(() => {
+    if (type !== 'rings') return []
+    let arr = (rings || []).filter(r =>
+      !search
+      || r.ring_id.toLowerCase().includes(search.toLowerCase())
+      || r.pattern_type.toLowerCase().includes(search.toLowerCase())
+      || r.member_accounts.some(a => a.toLowerCase().includes(search.toLowerCase()))
+    )
+    if (sortCol === 'risk_score') arr = [...arr].sort((a, b) => sortDir === 'asc' ? a.risk_score - b.risk_score : b.risk_score - a.risk_score)
+    if (sortCol === 'members') arr = [...arr].sort((a, b) => sortDir === 'asc' ? a.member_accounts.length - b.member_accounts.length : b.member_accounts.length - a.member_accounts.length)
+    if (sortCol === 'confidence') arr = [...arr].sort((a, b) => sortDir === 'asc' ? (a.confidence || 0) - (b.confidence || 0) : (b.confidence || 0) - (a.confidence || 0))
+    return arr
+  }, [rings, search, sortCol, sortDir, type])
+
+  const filteredAccounts = useMemo(() => {
+    if (type !== 'accounts') return []
+    let arr = (accounts || []).filter(a =>
+      !search
+      || a.account_id.toLowerCase().includes(search.toLowerCase())
+      || a.ring_id.toLowerCase().includes(search.toLowerCase())
+      || a.detected_patterns.some(p => p.toLowerCase().includes(search.toLowerCase()))
+    )
+    if (sortCol === 'score') arr = [...arr].sort((a, b) => sortDir === 'asc' ? a.suspicion_score - b.suspicion_score : b.suspicion_score - a.suspicion_score)
+    return arr
+  }, [accounts, search, sortCol, sortDir, type])
+
   /* ══════════════ RINGS TABLE ═══════════════════════════════ */
   if (type === 'rings') {
-    const filtered = useMemo(() => {
-      let arr = (rings || []).filter(r =>
-        !search
-        || r.ring_id.toLowerCase().includes(search.toLowerCase())
-        || r.pattern_type.toLowerCase().includes(search.toLowerCase())
-        || r.member_accounts.some(a => a.toLowerCase().includes(search.toLowerCase()))
-      )
-      if (sortCol === 'risk_score') arr = [...arr].sort((a, b) => sortDir === 'asc' ? a.risk_score - b.risk_score : b.risk_score - a.risk_score)
-      if (sortCol === 'members') arr = [...arr].sort((a, b) => sortDir === 'asc' ? a.member_accounts.length - b.member_accounts.length : b.member_accounts.length - a.member_accounts.length)
-      if (sortCol === 'confidence') arr = [...arr].sort((a, b) => sortDir === 'asc' ? (a.confidence || 0) - (b.confidence || 0) : (b.confidence || 0) - (a.confidence || 0))
-      return arr
-    }, [rings, search, sortCol, sortDir])
-
     return (
       <div className="table-container" style={{ animationDelay: '0.05s' }}>
         {/* Toolbar */}
@@ -125,10 +139,10 @@ export default function SummaryTable({ rings, accounts, type }) {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <span className="table-count">{filtered.length} ring{filtered.length !== 1 ? 's' : ''}</span>
+          <span className="table-count">{filteredRings.length} ring{filteredRings.length !== 1 ? 's' : ''}</span>
         </div>
 
-        {filtered.length === 0 ? (
+        {filteredRings.length === 0 ? (
           <div className="empty-table">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.3"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             <p>No fraud rings detected</p>
@@ -139,18 +153,18 @@ export default function SummaryTable({ rings, accounts, type }) {
               <thead>
                 <tr>
                   <th>Ring ID</th>
-                  <th>Pattern</th>
-                  <th className="sortable" onClick={() => handleSort('members')}>Members <SortArrow col="members" /></th>
+                  <th>Pattern Type</th>
+                  <th className="sortable" onClick={() => handleSort('members')}>Member Count <SortArrow col="members" /></th>
                   <th className="sortable" onClick={() => handleSort('risk_score')}>Risk Score <SortArrow col="risk_score" /></th>
                   <th className="sortable" onClick={() => handleSort('confidence')}>Confidence <SortArrow col="confidence" /></th>
-                  <th>Member Accounts</th>
+                  <th>Member Account IDs</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((ring, idx) => {
+                {filteredRings.map((ring, idx) => {
                   const isExp = expandedRow === ring.ring_id
-                  const preview = ring.member_accounts.slice(0, 3)
-                  const hasMore = ring.member_accounts.length > 3
+                  const memberStr = ring.member_accounts.join(', ')
+                  const isLong = ring.member_accounts.length > 4
                   return (
                     <tr key={ring.ring_id} className={isExp ? 'expanded' : ''} style={{ animationDelay: `${idx * 0.02}s` }}>
                       <td>
@@ -167,20 +181,29 @@ export default function SummaryTable({ rings, accounts, type }) {
                         <ConfidenceBadge value={ring.confidence} />
                       </td>
                       <td className="accounts-cell">
-                        <div className="acct-list">
-                          {(isExp ? ring.member_accounts : preview).map(a => (
-                            <span key={a} className="acct-chip">{a}</span>
-                          ))}
-                          {hasMore && (
+                        {isLong && !isExp ? (
+                          <div className="acct-comma-list">
+                            <span className="acct-comma-text">{ring.member_accounts.slice(0, 4).join(', ')}</span>
                             <button
                               className="expand-btn"
-                              onClick={() => setExpandedRow(isExp ? null : ring.ring_id)}
+                              onClick={() => setExpandedRow(ring.ring_id)}
                             >
-                              <ChevronIcon open={isExp} />
-                              {isExp ? 'less' : `+${ring.member_accounts.length - 3}`}
+                              +{ring.member_accounts.length - 4} more
                             </button>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="acct-comma-list">
+                            <span className="acct-comma-text">{memberStr}</span>
+                            {isLong && (
+                              <button
+                                className="expand-btn"
+                                onClick={() => setExpandedRow(null)}
+                              >
+                                show less
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )
@@ -194,16 +217,7 @@ export default function SummaryTable({ rings, accounts, type }) {
   }
 
   /* ══════════════ ACCOUNTS TABLE ════════════════════════════ */
-  const filtered = useMemo(() => {
-    let arr = (accounts || []).filter(a =>
-      !search
-      || a.account_id.toLowerCase().includes(search.toLowerCase())
-      || a.ring_id.toLowerCase().includes(search.toLowerCase())
-      || a.detected_patterns.some(p => p.toLowerCase().includes(search.toLowerCase()))
-    )
-    if (sortCol === 'score') arr = [...arr].sort((a, b) => sortDir === 'asc' ? a.suspicion_score - b.suspicion_score : b.suspicion_score - a.suspicion_score)
-    return arr
-  }, [accounts, search, sortCol, sortDir])
+  const filtered = filteredAccounts
 
   return (
     <div className="table-container" style={{ animationDelay: '0.05s' }}>

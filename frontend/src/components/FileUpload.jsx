@@ -31,6 +31,7 @@ export default function FileUpload({ onResult, onLoading, onError, loading }) {
   const inputRef = useRef(null)
   const [dragging, setDragging] = useState(false)
   const [fileName, setFileName] = useState(null)
+  const [schemaOpen, setSchemaOpen] = useState(false)
 
   const handleFile = async (file) => {
     if (!file) return
@@ -121,22 +122,37 @@ export default function FileUpload({ onResult, onLoading, onError, loading }) {
         </div>
       </div>
 
-      {/* Schema & Actions */}
+      {/* Schema Dropdown & Actions */}
       <div className="upload-meta">
-        <div className="schema-card">
-          <div className="schema-header">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span>Expected CSV Schema</span>
-          </div>
-          <div className="schema-cols">
-            {COLUMNS.map(c => (
-              <div key={c.name} className="schema-col">
-                <code className="col-name">{c.name}</code>
-                <span className="col-type">{c.type}</span>
-                <span className="col-desc">{c.desc}</span>
-              </div>
-            ))}
-          </div>
+        <div className={`schema-card ${schemaOpen ? 'open' : ''}`}>
+          <button
+            type="button"
+            className="schema-header schema-toggle"
+            onClick={(e) => { e.stopPropagation(); setSchemaOpen(prev => !prev) }}
+          >
+            <div className="schema-header-left">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span>Expected CSV Schema</span>
+            </div>
+            <svg
+              className={`schema-chevron ${schemaOpen ? 'rotated' : ''}`}
+              width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {schemaOpen && (
+            <div className="schema-cols schema-dropdown-body">
+              {COLUMNS.map(c => (
+                <div key={c.name} className="schema-col">
+                  <code className="col-name">{c.name}</code>
+                  <span className="col-type">{c.type}</span>
+                  <span className="col-desc">{c.desc}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <button className="btn-sample" onClick={downloadSample}>

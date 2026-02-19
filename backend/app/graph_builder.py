@@ -5,7 +5,6 @@ Uses vectorised pandas operations for fast execution on large datasets.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import networkx as nx
 import pandas as pd
@@ -34,74 +33,109 @@ def build_graph(df: pd.DataFrame) -> nx.DiGraph:
     """
     G = nx.DiGraph()
 
-    # ── Vectorised node statistics ────────────────────────────────────────────
-    sent_sum  = df.groupby("sender_id")["amount"].sum()
-    sent_cnt  = df.groupby("sender_id").size()
-    sent_avg  = df.groupby("sender_id")["amount"].mean()
-    recv_sum  = df.groupby("receiver_id")["amount"].sum()
-    recv_cnt  = df.groupby("receiver_id").size()
-    recv_avg  = df.groupby("receiver_id")["amount"].mean()
-    sent_cp   = df.groupby("sender_id")["receiver_id"].nunique()
-    recv_cp   = df.groupby("receiver_id")["sender_id"].nunique()
-    sent_first = df.groupby("sender_id")["timestamp"].min()
-    sent_last  = df.groupby("sender_id")["timestamp"].max()
-    recv_first = df.groupby("receiver_id")["timestamp"].min()
-    recv_last  = df.groupby("receiver_id")["timestamp"].max()
+    # ── Vectorised node statistics ─────────────────────────────────────────────
+    # Compute all sender/receiver stats in two aggregation calls instead of many.
+    sent_stats = df.groupby("sender_id").agg(
+        total_sent=("amount", "sum"),
+        sent_count=("amount", "count"),
+        avg_sent=("amount", "mean"),
+        sent_cp=("receiver_id", "nunique"),
+        sent_first=("timestamp", "min"),
+        sent_last=("timestamp", "max"),
+    )
+    recv_stats = df.groupby("receiver_id").agg(
+        total_received=("amount", "sum"),
+        received_count=("amount", "count"),
+        avg_received=("amount", "mean"),
+        recv_cp=("sender_id", "nunique"),
+        recv_first=("timestamp", "min"),
+        recv_last=("timestamp", "max"),
+    )
 
-    all_accounts = set(df["sender_id"].unique()) | set(df["receiver_id"].unique())
+    all_accounts = pd.Index(
+        set(df["sender_id"].unique()) | set(df["receiver_id"].unique())
+    )
+    s = sent_stats.reindex(all_accounts)
+    r = recv_stats.reindex(all_accounts)
 
-    for acc in all_accounts:
-        sc  = int(sent_cnt.get(acc, 0))
-        rc  = int(recv_cnt.get(acc, 0))
-        ts  = round(float(sent_sum.get(acc, 0.0)), 2)
-        tr  = round(float(recv_sum.get(acc, 0.0)), 2)
-        sa  = round(float(sent_avg.get(acc, 0.0)), 2)
-        ra  = round(float(recv_avg.get(acc, 0.0)), 2)
-        scp = int(sent_cp.get(acc, 0))
-        rcp = int(recv_cp.get(acc, 0))
+    # Compute first/last timestamps across both sent and received in one pass
+    # by stacking the two timestamp columns and taking min/max.
+    first_ts = pd.concat([s["sent_first"], r["recv_first"]], axis=1).min(axis=1)
+    last_ts  = pd.concat([s["sent_last"],  r["recv_last"]],  axis=1).max(axis=1)
 
-        # Overall first / last timestamp across sent AND received
-        cf = [t for t in [sent_first.get(acc), recv_first.get(acc)] if pd.notna(t)]
-        cl = [t for t in [sent_last.get(acc),  recv_last.get(acc)]  if pd.notna(t)]
-        first_tx = str(min(cf)) if cf else ""
-        last_tx  = str(max(cl)) if cl else ""
+    # Build node attribute DataFrame — all vectorised, no Python loop per account.
+    node_df = pd.DataFrame({
+        "total_sent":           s["total_sent"].fillna(0.0).round(2),
+        "total_received":       r["total_received"].fillna(0.0).round(2),
+        "sent_count":           s["sent_count"].fillna(0).astype(int),
+        "received_count":       r["received_count"].fillna(0).astype(int),
+        "avg_sent":             s["avg_sent"].fillna(0.0).round(2),
+        "avg_received":         r["avg_received"].fillna(0.0).round(2),
+        "sent_cp":              s["sent_cp"].fillna(0).astype(int),
+        "recv_cp":              r["recv_cp"].fillna(0).astype(int),
+        "first_tx":             first_ts.fillna("").astype(str),
+        "last_tx":              last_ts.fillna("").astype(str),
+    }, index=all_accounts)
+    node_df["tx_count"]              = node_df["sent_count"] + node_df["received_count"]
+    node_df["net_flow"]              = (node_df["total_received"] - node_df["total_sent"]).round(2)
+    node_df["unique_counterparties"] = node_df["sent_cp"] + node_df["recv_cp"]
 
-        G.add_node(
-            acc,
-            total_sent=ts,
-            total_received=tr,
-            net_flow=round(tr - ts, 2),
-            tx_count=sc + rc,
-            sent_count=sc,
-            received_count=rc,
-            avg_sent=sa,
-            avg_received=ra,
-            unique_counterparties=scp + rcp,
-            first_tx=first_tx,
-            last_tx=last_tx,
-        )
+    # Add all nodes in a single batch call using itertuples (much faster than
+    # per-node G.add_node() inside a loop with Series.get() lookups).
+    G.add_nodes_from([
+        (row.Index, {
+            "total_sent":            row.total_sent,
+            "total_received":        row.total_received,
+            "net_flow":              row.net_flow,
+            "tx_count":              row.tx_count,
+            "sent_count":            row.sent_count,
+            "received_count":        row.received_count,
+            "avg_sent":              row.avg_sent,
+            "avg_received":          row.avg_received,
+            "unique_counterparties": row.unique_counterparties,
+            "first_tx":              row.first_tx,
+            "last_tx":               row.last_tx,
+        })
+        for row in node_df.itertuples()
+    ])
 
-    # ── Edges ─────────────────────────────────────────────────────────────────
-    for (sender, receiver), grp in df.groupby(["sender_id", "receiver_id"]):
-        grp_s = grp.sort_values("timestamp")
-        txns: list[dict[str, Any]] = [
-            {
-                "transaction_id": row["transaction_id"],
-                "amount": round(float(row["amount"]), 2),
-                "timestamp": str(row["timestamp"]),
-            }
-            for _, row in grp_s.iterrows()
-        ]
-        G.add_edge(
-            sender,
-            receiver,
-            total_amount=round(float(grp["amount"].sum()), 2),
-            avg_amount=round(float(grp["amount"].mean()), 2),
-            tx_count=len(grp),
-            first_tx=str(grp["timestamp"].min()),
-            last_tx=str(grp["timestamp"].max()),
-            transactions=txns,
-        )
+    # ── Edges ──────────────────────────────────────────────────────────────────
+    # Build transaction dicts using itertuples (10-100x faster than iterrows).
+    # One sorted pass collects all txns keyed by (sender, receiver).
+    df_sorted = df.sort_values("timestamp")
+    tx_by_edge: dict[tuple, list] = {}
+    for row in df_sorted[
+        ["transaction_id", "amount", "timestamp", "sender_id", "receiver_id"]
+    ].itertuples(index=False):
+        key = (row.sender_id, row.receiver_id)
+        if key not in tx_by_edge:
+            tx_by_edge[key] = []
+        tx_by_edge[key].append({
+            "transaction_id": row.transaction_id,
+            "amount":         round(float(row.amount), 2),
+            "timestamp":      str(row.timestamp),
+        })
+
+    # Edge-level aggregate stats — vectorised groupby, no Python row loop.
+    edge_stats = df.groupby(["sender_id", "receiver_id"]).agg(
+        total_amount=("amount", "sum"),
+        avg_amount=("amount", "mean"),
+        tx_count=("amount", "count"),
+        first_tx=("timestamp", "min"),
+        last_tx=("timestamp", "max"),
+    ).reset_index()
+
+    G.add_edges_from([
+        (row.sender_id, row.receiver_id, {
+            "total_amount": round(float(row.total_amount), 2),
+            "avg_amount":   round(float(row.avg_amount), 2),
+            "tx_count":     int(row.tx_count),
+            "first_tx":     str(row.first_tx),
+            "last_tx":      str(row.last_tx),
+            "transactions": tx_by_edge.get((row.sender_id, row.receiver_id), []),
+        })
+        for row in edge_stats.itertuples(index=False)
+    ])
 
     log.info("Graph built: %d nodes, %d edges", G.number_of_nodes(), G.number_of_edges())
     return G

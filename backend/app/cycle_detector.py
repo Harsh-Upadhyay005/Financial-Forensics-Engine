@@ -54,6 +54,27 @@ def detect_cycles(G: nx.DiGraph) -> List[Dict]:
     cycle_count = 0
     timed_out = False
 
+    # ── SCC pre-filter ──────────────────────────────────────────────────────────
+    # Cycles can only exist within strongly-connected components of size ≥ CYCLE_MIN_LEN.
+    # Building a subgraph of just those nodes before calling simple_cycles avoids
+    # iterating over the (often large) acyclic majority of the graph.
+    scc_nodes: set = set()
+    for scc in nx.strongly_connected_components(G):
+        if len(scc) >= CYCLE_MIN_LEN:
+            scc_nodes.update(scc)
+
+    if not scc_nodes:
+        log.info("Cycle detection: 0 rings found (no qualifying SCCs)")
+        return rings
+
+    H = G.subgraph(scc_nodes)  # O(1) view — no copy
+    log.info(
+        "Cycle detection: SCC subgraph has %d nodes / %d total (%.1f%% reduction)",
+        len(scc_nodes),
+        G.number_of_nodes(),
+        100.0 * (1 - len(scc_nodes) / G.number_of_nodes()) if G.number_of_nodes() else 0,
+    )
+
     # ── Threading-based timeout ─────────────────────────────────────────────────
     stop_event = threading.Event()
 
@@ -65,7 +86,7 @@ def detect_cycles(G: nx.DiGraph) -> List[Dict]:
     timer.start()
 
     try:
-        for cycle in nx.simple_cycles(G):
+        for cycle in nx.simple_cycles(H):
             if stop_event.is_set():
                 timed_out = True
                 log.warning(

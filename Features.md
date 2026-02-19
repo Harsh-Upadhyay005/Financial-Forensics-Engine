@@ -22,6 +22,15 @@ A complete breakdown of every feature in the system, how it works internally, an
 14. [Request-ID Tracing Middleware](#14-request-id-tracing-middleware)
 15. [Centralised Configuration](#15-centralised-configuration)
 16. [Sample CSV Download](#16-sample-csv-download)
+17. [Amount Anomaly Detection](#17-amount-anomaly-detection)
+18. [Bi-directional Flow Detection (Round-trip)](#18-bi-directional-flow-detection-round-trip)
+19. [Rapid Movement Detection](#19-rapid-movement-detection)
+20. [Amount Structuring Detection](#20-amount-structuring-detection)
+21. [Risk Explanation Strings](#21-risk-explanation-strings)
+22. [Network Statistics](#22-network-statistics)
+23. [Community Detection (Louvain)](#23-community-detection-louvain)
+24. [Confidence Score per Ring](#24-confidence-score-per-ring)
+25. [Temporal Activity Profiles](#25-temporal-activity-profiles)
 
 ---
 
@@ -49,7 +58,7 @@ Accepts a raw CSV file upload (up to 20 MB), decodes it, validates every row, an
 
 7. **Duplicate Transaction ID Dedup** — If multiple rows share the same `transaction_id`, only the first occurrence is kept.
 
-8. **Row Limit Enforcement** — If more than 10,000 valid rows remain, the dataset is truncated (configurable via `MAX_ROWS` env var).
+8. **Row Limit Enforcement** — If more than 10,000 valid rows remain, the dataset is truncated (default set in `config.py`; can be optionally overridden by setting a `MAX_ROWS` environment variable).
 
 9. **Parse Stats** — Returns a stats dict alongside the DataFrame containing `total_rows`, `valid_rows`, `dropped_rows`, `duplicate_tx_ids`, `self_transactions`, `negative_amounts`, and a `warnings` list. These stats are included in the API response so the user knows exactly what was cleaned.
 
@@ -599,6 +608,317 @@ Users don't have to guess the correct CSV format. They can download the sample, 
 
 ---
 
+## 17. Amount Anomaly Detection
+
+**File:** `backend/app/anomaly_detector.py`
+
+### What It Does
+
+Flags accounts whose transaction amounts are statistically unusual — specifically, amounts more than 3 standard deviations from that account's own mean. This catches sudden large transfers that deviate from an account's normal behaviour.
+
+### How It Works
+
+1. **Per-Account Aggregation** — Groups all transactions by sender and receiver separately.
+2. **Statistical Thresholds** — For each account with ≥5 transactions, computes `mean` and `std` of transaction amounts.
+3. **Anomaly Test** — Any transaction where `|amount - mean| > 3σ` flags the account.
+4. **Minimum Sample Size** — Accounts with fewer than 5 transactions are skipped (insufficient data for meaningful statistics).
+5. **Configurable Sensitivity** — The standard deviation multiplier is set via `AMOUNT_ANOMALY_STDDEV` in `config.py` (default: 3.0).
+
+### Scoring Impact
+
+Flagged accounts receive a **+18 point** suspicion score bonus (`SCORE_AMOUNT_ANOMALY`).
+
+### Why It Matters
+
+Money mules often receive one unusually large deposit that dwarfs their normal transaction pattern. A sudden $50,000 transfer into an account that normally handles $200 transactions is a strong red flag that statistical anomaly detection catches automatically.
+
+---
+
+## 18. Bi-directional Flow Detection (Round-trip)
+
+**File:** `backend/app/bidirectional_detector.py`
+
+### What It Does
+
+Detects account pairs where money flows in both directions (A→B and B→A) with similar total amounts. This round-trip pattern is used to create the illusion of legitimate business activity while actually laundering funds.
+
+### How It Works
+
+1. **Edge Pair Scan** — For every edge A→B in the graph, checks if a reverse edge B→A also exists.
+2. **Amount Similarity** — Computes a similarity ratio: `1 - |amount_AB - amount_BA| / max(amount_AB, amount_BA)`.
+3. **Tolerance Threshold** — If similarity ≥ 80% (configurable via `ROUND_TRIP_AMOUNT_TOLERANCE = 0.2`), the pair is flagged as a round-trip ring.
+4. **Deduplication** — Each pair is stored as a sorted tuple `(min(A,B), max(A,B))` to prevent reporting both A→B and B→A.
+
+### Output
+
+```json
+{
+  "members": ["ACC_A", "ACC_B"],
+  "pattern": "round_trip",
+  "similarity": 0.95
+}
+```
+
+### Scoring Impact
+
+Round-trip rings carry a **risk score of 82.0** and each member receives a **+20 point** suspicion bonus (`SCORE_ROUND_TRIP`).
+
+### Why It Matters
+
+Legitimate businesses rarely have symmetric bi-directional flows of similar magnitude. When $10,000 flows from A to B and $9,500 flows back, it strongly suggests artificial "round-tripping" to create transaction volume that disguises the true origin of funds.
+
+---
+
+## 19. Rapid Movement Detection
+
+**File:** `backend/app/rapid_movement_detector.py`
+
+### What It Does
+
+Flags accounts that receive funds and forward them within minutes — the hallmark of a money mule acting as a pass-through. Legitimate accounts typically hold funds; mules move money as fast as possible before the account is frozen.
+
+### How It Works
+
+1. **Transaction Classification** — For each account, separates incoming (received) and outgoing (sent) transactions.
+2. **Timestamp Sorting** — Both lists are sorted chronologically.
+3. **Two-Pointer Dwell Scan** — For each incoming transaction, finds the earliest outgoing transaction that follows it. The time difference is the "dwell time".
+4. **Threshold Check** — If any dwell time is ≤ 30 minutes (configurable via `RAPID_MOVEMENT_MINUTES`), the account is flagged.
+5. **Metadata Capture** — Records `min_dwell_minutes` (fastest pass-through) and `rapid_count` (how many times this pattern occurred).
+
+### Output
+
+```json
+{
+  "ACC_MULE": {
+    "min_dwell_minutes": 4.0,
+    "rapid_count": 2
+  }
+}
+```
+
+### Scoring Impact
+
+Flagged accounts receive a **+20 point** suspicion score bonus (`SCORE_RAPID_MOVEMENT`). The risk explanation includes the fastest dwell time.
+
+### Why It Matters
+
+Money mules are instructed to forward funds immediately. A 4-minute gap between receiving $1,200 and sending $1,000 to another account is almost never legitimate behaviour. This detector catches the temporal urgency that distinguishes mules from normal account holders.
+
+---
+
+## 20. Amount Structuring Detection
+
+**File:** `backend/app/structuring_detector.py`
+
+### What It Does
+
+Detects accounts making multiple transactions just below the $10,000 Currency Transaction Report (CTR) threshold. Deliberately structuring transactions to avoid regulatory reporting is itself a federal crime (31 USC § 5324).
+
+### How It Works
+
+1. **Band Definition** — Defines a "structuring band" from `$8,500` to `$10,000` (configurable via `STRUCTURING_THRESHOLD = 10000` and `STRUCTURING_MARGIN = 0.15`, meaning 15% below the threshold).
+2. **Transaction Scan** — For each account, counts how many sent transactions fall within this band.
+3. **Minimum Count** — At least 3 transactions in the band are required to flag (configurable via `STRUCTURING_MIN_TX`).
+4. **Metadata** — Captures `structured_tx_count`, `avg_amount`, and `total_structured` for the risk explanation.
+
+### Output
+
+```json
+{
+  "ACC_X": {
+    "structured_tx_count": 4,
+    "avg_amount": 9650.0,
+    "total_structured": 38600.0
+  }
+}
+```
+
+### Scoring Impact
+
+Flagged accounts receive a **+15 point** suspicion score bonus (`SCORE_STRUCTURING`). The risk explanation notes the number of transactions and average amount.
+
+### Why It Matters
+
+A single $9,800 transaction is unremarkable. Four transactions of $9,500–$9,800 from the same account is a deliberate pattern to stay below the $10,000 CTR threshold. Banks are trained to watch for this; automated detection catches it at scale.
+
+---
+
+## 21. Risk Explanation Strings
+
+**File:** `backend/app/scoring.py`
+
+### What It Does
+
+Generates a human-readable natural language explanation for every suspicious account, describing exactly why it was flagged and what evidence supports its suspicion score.
+
+### How It Works
+
+1. **Pattern Explanations** — Each detected pattern type maps to a template string:
+   - `cycle_length_3` → "Participates in a 3-node circular fund routing cycle."
+   - `fan_in` → "Receives from 10+ unique senders within 72 hours (aggregator pattern)."
+   - `rapid_movement` → "Receives and forwards funds within minutes (pass-through)."
+   - `structuring` → "Multiple transactions just below reporting threshold ($10K)."
+
+2. **Contextual Details** — Appends specific metadata:
+   - Ring membership: "Member of RING_001."
+   - Multi-ring: "Appears in 3 distinct fraud rings."
+   - Rapid movement: "Fastest pass-through: 4.0 min."
+   - Structuring: "4 transactions in $9,650 range (just below $10K threshold)."
+
+3. **Sentence Assembly** — All applicable explanations are concatenated into a single readable string.
+
+### Example Output
+
+```
+"Participates in a 3-node circular fund routing cycle. Receives and forwards
+funds within minutes (pass-through). Member of RING_001. Fastest pass-through:
+15.0 min."
+```
+
+### Why It Matters
+
+A score of 57.5 tells you _how suspicious_ an account is, but not _why_. Risk explanations give investigators an immediate narrative they can include in Suspicious Activity Reports (SARs) without having to manually decode pattern codes. This is the difference between a developer tool and an investigator tool.
+
+---
+
+## 22. Network Statistics
+
+**File:** `backend/app/formatter.py`
+
+### What It Does
+
+Computes and returns graph-level network statistics in the API summary, giving analysts an overview of the transaction network's structure and connectivity.
+
+### Metrics Computed
+
+| Metric                 | Description                                            |
+| ---------------------- | ------------------------------------------------------ |
+| `total_nodes`          | Number of unique accounts in the graph                 |
+| `total_edges`          | Number of unique directed transaction links            |
+| `graph_density`        | Ratio of actual edges to possible edges (0–1)          |
+| `avg_degree`           | Average number of connections per account              |
+| `connected_components` | Number of disconnected sub-networks                    |
+| `avg_clustering`       | Average clustering coefficient (skipped for >1K nodes) |
+
+### Example Output
+
+```json
+"network_statistics": {
+  "total_nodes": 25,
+  "total_edges": 23,
+  "graph_density": 0.038333,
+  "avg_degree": 1.84,
+  "connected_components": 4,
+  "avg_clustering": 0.12
+}
+```
+
+### Why It Matters
+
+Network statistics help analysts understand the overall structure at a glance. A density of 0.038 tells you the network is sparse (typical of financial networks). Four connected components means there are four independent clusters of accounts. High clustering suggests tight-knit groups — a potential indicator of coordinated activity.
+
+---
+
+## 23. Community Detection (Louvain)
+
+**File:** `backend/app/formatter.py`
+
+### What It Does
+
+Assigns every account to a community (cluster) using the Louvain modularity optimisation algorithm. Communities represent groups of accounts that transact more densely with each other than with the rest of the network.
+
+### How It Works
+
+1. **Algorithm** — Uses `networkx.community.louvain_communities()` which iteratively optimises modularity by moving nodes between communities.
+2. **Undirected Conversion** — The directed graph is converted to undirected for community detection (Louvain requires undirected input).
+3. **Community ID Assignment** — Each community is assigned an integer ID (0, 1, 2, ...). Every node receives a `community_id` field in the API response.
+4. **Deterministic Seeding** — Uses `seed=42` for reproducible results across runs.
+
+### Example
+
+In a test with 25 accounts, the network was partitioned into 4 communities (0–3), corresponding to the cycle cluster, the structuring cluster, the mule cluster, and the fan-in cluster.
+
+### Why It Matters
+
+Community detection reveals the natural groupings in the network that may not align 1:1 with detected fraud rings. An investigator might discover that two separate "fraud rings" actually belong to the same community — suggesting they're connected parts of a larger operation. This is strategic intelligence beyond individual ring detection.
+
+---
+
+## 24. Confidence Score per Ring
+
+**File:** `backend/app/formatter.py`
+
+### What It Does
+
+Assigns each fraud ring a confidence score (0.0–1.0) indicating how certain the system is that this ring represents genuine fraudulent activity rather than a false positive.
+
+### How It Works
+
+The confidence score combines multiple factors:
+
+1. **Pattern Base Score** — Each pattern type has a base confidence:
+   - `cycle_length_3`: 0.95 (very high — hardest to explain legitimately)
+   - `cycle_length_4`: 0.90
+   - `cycle_length_5`: 0.85
+   - `fan_in` / `fan_out`: 0.80
+   - `round_trip`: 0.85
+   - `shell_chain`: 0.75
+
+2. **Size Bonus** — Rings with 4+ members get +0.05 (larger coordinated groups are less likely coincidental).
+
+3. **Merge Bonus** — Rings that resulted from merging multiple detected patterns get +0.05 (cross-pattern corroboration increases confidence).
+
+4. **Round-trip Similarity** — For round-trip rings, the similarity ratio from the bidirectional detector is factored in.
+
+5. **Cap** — Final score is capped at 1.0.
+
+### Example
+
+```json
+{
+  "ring_id": "RING_001",
+  "pattern_type": "cycle_length_3",
+  "confidence": 0.95
+}
+```
+
+### Why It Matters
+
+Not all detections are equally reliable. A 3-node cycle has a 0.95 confidence; a shell chain has 0.75. This helps investigators prioritise which rings to investigate first and calibrates their expectations about false positive rates for different pattern types.
+
+---
+
+## 25. Temporal Activity Profiles
+
+**File:** `backend/app/formatter.py`
+
+### What It Does
+
+For each suspicious account, generates a 24-hour activity profile showing when transactions occur throughout the day. This reveals unusual timing patterns that may indicate automated or coordinated mule activity.
+
+### How It Works
+
+1. **Hourly Binning** — All transactions involving the account (sent and received) are binned into 24 hourly buckets (0–23).
+2. **Distribution Array** — A 24-element array where each element is the count of transactions in that hour.
+3. **Peak Hour** — The hour with the most activity.
+4. **Active Hours** — Count of hours that have at least one transaction.
+
+### Example Output
+
+```json
+"temporal_profile": {
+  "hourly_distribution": [0,0,0,0,0,0,0,0,1,1,2,2,1,2,0,0,0,0,0,0,0,0,0,0],
+  "peak_hour": 10,
+  "active_hours": 6
+}
+```
+
+### Why It Matters
+
+Money mules often operate during specific windows — late at night, early morning, or in tight bursts during business hours. An account that only transacts between 2 AM and 4 AM, or one that concentrates all activity into a single hour, stands out from normal banking patterns. Temporal profiles give investigators a behavioural fingerprint beyond just amounts and connections.
+
+---
+
 ## Summary of Detection Coverage
 
 | Threat Pattern             | Detection Method            | Confidence Level | Score Weight     |
@@ -607,6 +927,10 @@ Users don't have to guess the correct CSV format. They can download the sample, 
 | Fan-in aggregation         | Two-pointer temporal window | High             | 28               |
 | Fan-out dispersal          | Two-pointer temporal window | High             | 28               |
 | Shell layering             | Iterative DFS chain search  | Medium-High      | 22               |
+| Round-trip flows (A↔B)     | Bi-directional edge scan    | High             | 20               |
+| Amount anomaly             | Statistical σ deviation     | Medium-High      | 18 (bonus)       |
+| Rapid fund movement        | Dwell-time analysis         | High             | 20 (bonus)       |
+| Amount structuring (<$10K) | Sub-threshold band scan     | High             | 15 (bonus)       |
 | High-velocity mules        | Transaction rate analysis   | Medium           | 15 (bonus)       |
 | Multi-pattern hubs         | Cross-ring membership count | Very High        | 10+ (bonus)      |
 | Network centrality hubs    | Betweenness centrality      | Medium           | Up to 10 (bonus) |
@@ -623,3 +947,7 @@ Users don't have to guess the correct CSV format. They can download the sample, 
 | Cycle detection timeout    | 20 seconds (configurable)       |
 | Memory usage               | In-memory (Pandas + NetworkX)   |
 | API response format        | JSON with exact spec compliance |
+| Community detection        | Louvain modularity optimisation |
+| Confidence scoring         | Multi-factor per-ring (0.0–1.0) |
+| Risk explanations          | Natural language per account    |
+| Temporal profiling         | 24-hour activity distribution   |

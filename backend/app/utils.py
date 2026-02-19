@@ -59,7 +59,7 @@ def _merge_rings(rings: List[Dict]) -> List[Dict]:
         # Keep the highest-priority pattern name as primary pattern
         _priority = [
             "cycle_length_3", "cycle_length_4", "cycle_length_5",
-            "fan_in", "fan_out", "shell_chain",
+            "fan_in", "fan_out", "round_trip", "shell_chain",
         ]
         for p in _priority:
             if p in current_patterns:
@@ -77,6 +77,7 @@ def assign_ring_ids(
     cycle_rings: List[Dict],
     smurf_rings: List[Dict],
     shell_rings: List[Dict],
+    roundtrip_rings: List[Dict] | None = None,
     merge: bool = True,
 ) -> List[Dict]:
     """
@@ -86,7 +87,7 @@ def assign_ring_ids(
     Returns a flat list with ring_id injected into each ring dict.
     """
     # Combine in priority order: cycles first (highest confidence)
-    combined = cycle_rings + smurf_rings + shell_rings
+    combined = cycle_rings + smurf_rings + shell_rings + (roundtrip_rings or [])
 
     if merge:
         combined = _merge_rings(combined)

@@ -35,11 +35,15 @@ from .graph_builder import build_graph
 from .cycle_detector import detect_cycles
 from .smurf_detector import detect_smurfing
 from .shell_detector import detect_shell_networks
+from .bidirectional_detector import detect_round_trips
+from .anomaly_detector import detect_amount_anomalies
+from .rapid_movement_detector import detect_rapid_movements
+from .structuring_detector import detect_structuring
 from .scoring import calculate_scores
 from .formatter import format_output
 from .utils import assign_ring_ids
 
-__version__ = "1.1.0"
+__version__ = "2.0.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -155,18 +159,31 @@ async def analyze(file: UploadFile = File(...)):
     # ---- 2. Build graph ----
     G = build_graph(df)
 
-    # ---- 3. Run detectors ----
+    # ---- 3. Run core detectors ----
     cycle_rings = detect_cycles(G)
     smurf_rings = detect_smurfing(df)
     shell_rings = detect_shell_networks(G)
+    roundtrip_rings = detect_round_trips(G)
 
-    # ---- 4. Assign ring IDs (with optional merging) ----
-    all_rings = assign_ring_ids(cycle_rings, smurf_rings, shell_rings, merge=True)
+    # ---- 4. Run enrichment detectors ----
+    anomaly_accounts = detect_amount_anomalies(df)
+    rapid_accounts = detect_rapid_movements(df)
+    structuring_accounts = detect_structuring(df)
 
-    # ---- 5. Score accounts ----
-    account_scores = calculate_scores(all_rings, df, G)
+    # ---- 5. Assign ring IDs (with optional merging) ----
+    all_rings = assign_ring_ids(
+        cycle_rings, smurf_rings, shell_rings, roundtrip_rings, merge=True
+    )
 
-    # ---- 6. Format & return ----
+    # ---- 6. Score accounts (with all enrichments) ----
+    account_scores = calculate_scores(
+        all_rings, df, G,
+        anomaly_accounts=anomaly_accounts,
+        rapid_accounts=rapid_accounts,
+        structuring_accounts=structuring_accounts,
+    )
+
+    # ---- 7. Format & return ----
     elapsed = time.perf_counter() - start_time
     result = format_output(
         all_rings, account_scores, G, elapsed, total_accounts, parse_stats

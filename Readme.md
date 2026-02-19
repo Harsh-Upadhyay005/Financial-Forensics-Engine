@@ -32,7 +32,7 @@
 | Data       | **Pandas 3.x** / **NumPy**    | Vectorized transaction processing & statistics       |
 | Validation | **Pydantic v2**               | Request/response schema validation                   |
 | Frontend   | **React 18** / **Vite 5**     | Single-page application, drag-and-drop upload        |
-| Viz        | **react-force-graph-2d**      | Force-directed interactive graph rendering           |
+| Viz        | **Cytoscape.js** / **react-cytoscapejs** | Interactive graph rendering with cose-bilkent layout |
 | HTTP       | **Axios**                     | API communication with 60s timeout handling          |
 
 ---
@@ -336,7 +336,7 @@ All defaults are set in `backend/app/config.py`. Override via environment variab
 2. **Upload a CSV file** via drag-and-drop or click-to-browse
    - Required columns: `transaction_id`, `sender_id`, `receiver_id`, `amount`, `timestamp`
 3. **View results** in three tabs:
-   - **Network Graph** — Interactive force-directed visualization. Suspicious nodes are larger and color-coded by pattern type (red = cycle, purple = smurf, cyan = shell, yellow = multi-pattern). Click any node for a detail panel showing stats, score, and risk explanation.
+   - **Network Graph** — Interactive Cytoscape.js visualization. Suspicious nodes are larger and color-coded by pattern type (red = cycle, purple = smurf, cyan = shell, yellow = multi-pattern). Click any node for a detail panel showing stats, score, and risk explanation.
    - **Fraud Rings** — Table showing each ring with Ring ID, Pattern Type, Member Count, Risk Score, Confidence Score, and Member Account IDs.
    - **Suspicious Accounts** — Table of flagged accounts sorted by suspicion score with detected patterns, ring assignment, and risk explanation.
 4. **Download JSON report** via the button in the header — includes `suspicious_accounts`, `fraud_rings`, and `summary` with network statistics.

@@ -1,0 +1,17 @@
+.download-btn {
+  background: var(--accent2);
+  color: #0f1117;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.download-btn:hover {
+  background: #00f0c0;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,212,170,0.4);
+}

@@ -1,0 +1,33 @@
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  transition: transform 0.2s;
+}
+.stat-card:hover { transform: translateY(-2px); }
+.stat-card.danger { border-color: rgba(255,77,109,0.4); }
+.stat-card.purple { border-color: rgba(108,99,255,0.4); }
+.stat-card.teal { border-color: rgba(0,212,170,0.4); }
+
+.stat-icon { font-size: 1.5rem; }
+.stat-value { font-size: 1.75rem; font-weight: 700; color: var(--text); }
+.stat-card.danger .stat-value { color: var(--danger); }
+.stat-card.purple .stat-value { color: var(--accent); }
+.stat-card.teal .stat-value { color: var(--accent2); }
+.stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }

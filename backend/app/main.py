@@ -1,21 +1,4 @@
-"""
-main.py – FastAPI application entry point.
 
-Endpoints
----------
-GET  /          – root redirect
-GET  /health    – liveness / readiness probe with version info
-POST /analyze   – upload CSV, run full forensics pipeline, return JSON
-
-Production concerns addressed
-------------------------------
-- Structured logging (INFO level, JSON-friendly format)
-- File-size guard before reading upload into memory
-- Request-ID header injected into every response for traceability
-- parse_stats returned so callers know about dropped rows / warnings
-- lifespan context manager (replaces deprecated @app.on_event)
-- CORS locked to env-configurable origins
-"""
 from __future__ import annotations
 
 import logging
@@ -45,9 +28,8 @@ from .utils import assign_ring_ids
 
 __version__ = "2.0.0"
 
-# ---------------------------------------------------------------------------
+
 # Logging
-# ---------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-8s %(name)s │ %(message)s",
@@ -56,9 +38,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
 # Lifespan
-# ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Financial Forensics Engine v%s starting up", __version__)
@@ -66,10 +46,10 @@ async def lifespan(app: FastAPI):
     log.info("Financial Forensics Engine shutting down")
 
 
-# ---------------------------------------------------------------------------
 # App
-# ---------------------------------------------------------------------------
-ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+_raw_origins = os.getenv("CORS_ORIGINS", "*")
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",")]
+_credentials_ok = ALLOWED_ORIGINS != ["*"]
 
 app = FastAPI(
     title="Financial Forensics Engine",
@@ -81,15 +61,13 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=_credentials_ok,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ---------------------------------------------------------------------------
 # Request-ID middleware
-# ---------------------------------------------------------------------------
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
@@ -98,9 +76,7 @@ async def add_request_id(request: Request, call_next):
     return response
 
 
-# ---------------------------------------------------------------------------
 # Routes
-# ---------------------------------------------------------------------------
 @app.get("/", include_in_schema=False)
 def root():
     return {"status": "ok", "service": "Financial Forensics Engine", "version": __version__}
@@ -129,7 +105,7 @@ async def analyze(
 
     Expected CSV columns: transaction_id, sender_id, receiver_id, amount, timestamp
     """
-    # ---- basic validation ----
+    # basic validation 
     if not (file.filename or "").lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are accepted.")
 
@@ -143,7 +119,7 @@ async def analyze(
 
     start_time = time.perf_counter()
 
-    # ---- 1. Parse ----
+    #  Parse 
     try:
         df, parse_stats = parse_csv(file_bytes)
     except ValueError as exc:
@@ -162,26 +138,26 @@ async def analyze(
         total_accounts,
     )
 
-    # ---- 2. Build graph ----
+    #  Build graph 
     G = build_graph(df)
 
-    # ---- 3. Run core detectors ----
+    # Run core detectors
     cycle_rings = detect_cycles(G)
     smurf_rings = detect_smurfing(df)
     shell_rings = detect_shell_networks(G)
     roundtrip_rings = detect_round_trips(G)
 
-    # ---- 4. Run enrichment detectors ----
+    # Run enrichment detectors
     anomaly_accounts = detect_amount_anomalies(df)
     rapid_accounts = detect_rapid_movements(df)
     structuring_accounts = detect_structuring(df)
 
-    # ---- 5. Assign ring IDs (with optional merging) ----
+    # Assign ring IDs 
     all_rings = assign_ring_ids(
         cycle_rings, smurf_rings, shell_rings, roundtrip_rings, merge=True
     )
 
-    # ---- 6. Score accounts (with all enrichments) ----
+    # Score accounts (with all enrichments)
     account_scores = calculate_scores(
         all_rings, df, G,
         anomaly_accounts=anomaly_accounts,
@@ -189,7 +165,7 @@ async def analyze(
         structuring_accounts=structuring_accounts,
     )
 
-    # ---- 7. Format & return ----
+    # Format & return
     elapsed = time.perf_counter() - start_time
     result = format_output(
         all_rings, account_scores, G, elapsed, total_accounts, parse_stats, detail=detail

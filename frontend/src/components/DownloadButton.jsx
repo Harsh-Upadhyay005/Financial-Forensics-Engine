@@ -5,15 +5,21 @@ export default function DownloadButton({ result }) {
   const [downloaded, setDownloaded] = useState(false)
 
   const handleDownload = () => {
+    // Strip internal-only fields: graph, parse_stats, risk_explanation
+    const cleanAccounts = (result.suspicious_accounts || []).map(
+      ({ risk_explanation, ...rest }) => rest
+    )
     const output = {
-      suspicious_accounts: result.suspicious_accounts,
+      suspicious_accounts: cleanAccounts,
       fraud_rings: result.fraud_rings,
       summary: result.summary,
-      graph: result.graph,
-      ...(result.parse_stats && { parse_stats: result.parse_stats }),
     }
+    // JavaScript loses the decimal point for whole-number floats (36.0 → 36).
+    // Re-add ".0" suffix to score fields so the JSON matches the float type.
+    const jsonStr = JSON.stringify(output, null, 2)
+      .replace(/("(?:suspicion_score|risk_score)": )(\d+)(?![\d.])/g, '$1$2.0')
     const blob = new Blob(
-      [JSON.stringify(output, null, 2)],
+      [jsonStr],
       { type: 'application/json' }
     )
     const url = URL.createObjectURL(blob)

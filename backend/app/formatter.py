@@ -216,32 +216,35 @@ def format_output(
     detail          : when True, include ``graph`` and ``parse_stats`` in the
                       response (used by the frontend, omitted for evaluation)
     """
-    # 1. Fraud rings (no confidence field — not in evaluation spec)
+    # 1. Fraud rings (spec fields only: ring_id, member_accounts, pattern_type, risk_score)
     fraud_rings: List[Dict] = []
     for ring in rings:
         fraud_rings.append({
             "ring_id":         ring["ring_id"],
             "member_accounts": ring["members"],
             "pattern_type":    ring["pattern"],
-            "risk_score":      _risk_score(ring),
+            "risk_score":      float(_risk_score(ring)),  # explicit float for JSON
         })
     fraud_rings.sort(key=lambda r: r["risk_score"], reverse=True)
 
-    # 2. Suspicious accounts (with risk_explanation)
-    # Only include accounts that clear the minimum suspicion threshold.
+    # 2. Suspicious accounts
+    # Spec-required fields only: account_id, suspicion_score (float), detected_patterns, ring_id
+    # risk_explanation is included only in detail mode (frontend); omitted for evaluation.
     suspicious_accounts: List[Dict] = []
     for acc_id, d in account_scores.items():
         if d["score"] < MIN_SUSPICION_SCORE:
             continue
         ring_ids = d.get("ring_ids", [])
         primary_ring = ring_ids[0] if ring_ids else "UNASSIGNED"
-        suspicious_accounts.append({
+        entry: Dict[str, Any] = {
             "account_id":        acc_id,
-            "suspicion_score":   d["score"],
+            "suspicion_score":   float(d["score"]),  # explicit float
             "detected_patterns": d["patterns"],
             "ring_id":           primary_ring,
-            "risk_explanation":  d.get("risk_explanation", ""),
-        })
+        }
+        if detail:
+            entry["risk_explanation"] = d.get("risk_explanation", "")
+        suspicious_accounts.append(entry)
     suspicious_accounts.sort(key=lambda x: x["suspicion_score"], reverse=True)
 
     # 3. Graph payload (with community_id and temporal_profile) — detail mode only

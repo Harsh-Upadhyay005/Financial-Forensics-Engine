@@ -17,20 +17,22 @@ MAX_CYCLES: int = int(os.getenv("MAX_CYCLES", "5000"))
 CYCLE_TIMEOUT_SECONDS: float = float(os.getenv("CYCLE_TIMEOUT_SECONDS", "20.0"))
 
 # ── Smurfing detection ─────────────────────────────────────────────────────────
-# Raised from 10 → 15 to reduce false positives on legitimate merchants/payroll.
-FAN_THRESHOLD: int = int(os.getenv("FAN_THRESHOLD", "15"))
+FAN_THRESHOLD: int = int(os.getenv("FAN_THRESHOLD", "10"))
 SMURF_WINDOW_HOURS: int = int(os.getenv("SMURF_WINDOW_HOURS", "72"))
 
-# SEPARATE exclusion thresholds for fan-in vs fan-out.
-# Accounts in top FAN_IN_HIGH_VOL_PERCENTILE of RECEIVE count are excluded from
-# fan-in detection (e.g. Amazon, payment processors that legitimately collect from many).
-# Accounts in top FAN_OUT_HIGH_VOL_PERCENTILE of SEND count are excluded from
-# fan-out detection (e.g. payroll processors that legitimately pay many employees).
-FAN_IN_HIGH_VOL_PERCENTILE: float = float(os.getenv("FAN_IN_HIGH_VOL_PERCENTILE", "0.95"))
-FAN_OUT_HIGH_VOL_PERCENTILE: float = float(os.getenv("FAN_OUT_HIGH_VOL_PERCENTILE", "0.95"))
-# Legacy combined threshold kept for backward compat (not used by detector any more).
-HIGH_VOL_PERCENTILE: float = float(os.getenv("HIGH_VOL_PERCENTILE", "0.98"))
-HIGH_VOL_MIN_ACCOUNTS: int = int(os.getenv("HIGH_VOL_MIN_ACCOUNTS", "20"))
+# Semantic false-positive exclusions (more precise than percentile-based):
+#
+# MERCHANT detection (fan-in exclusion):
+#   Retail merchants receive payments of highly VARIABLE amounts (different products).
+#   Legitimate smurfing aggregators receive UNIFORM small amounts from many senders.
+#   Coefficient of variation (std/mean) of received amounts > this threshold → merchant.
+MERCHANT_AMOUNT_CV_THRESHOLD: float = float(os.getenv("MERCHANT_AMOUNT_CV_THRESHOLD", "0.15"))
+
+# PAYROLL/BATCH detection (fan-out exclusion):
+#   Payroll systems disburse all salaries simultaneously (batch at same timestamp).
+#   Smurfing dispersers send funds spread out over time to avoid detection.
+#   If ALL outgoing transactions from a sender span < this many seconds → payroll batch.
+PAYROLL_BATCH_SECONDS: float = float(os.getenv("PAYROLL_BATCH_SECONDS", "60.0"))
 
 # ── Shell detection ────────────────────────────────────────────────────────────
 SHELL_MAX_TX: int = int(os.getenv("SHELL_MAX_TX", "3"))

@@ -31,6 +31,7 @@ from .config import (
     HIGH_VELOCITY_TX_PER_DAY,
     SCORE_AMOUNT_ANOMALY, SCORE_ROUND_TRIP, SCORE_RAPID_MOVEMENT,
     SCORE_STRUCTURING,
+    FAN_THRESHOLD,
 )
 
 log = logging.getLogger(__name__)
@@ -90,8 +91,8 @@ _PATTERN_EXPLANATIONS: Dict[str, str] = {
     "cycle_length_3": "Participates in a 3-node circular fund routing cycle",
     "cycle_length_4": "Participates in a 4-node circular fund routing cycle",
     "cycle_length_5": "Participates in a 5-node circular fund routing cycle",
-    "fan_in": "Receives from 15+ unique senders within 72 hours (aggregator pattern)",
-    "fan_out": "Sends to 15+ unique receivers within 72 hours (disperser pattern)",
+    "fan_in": f"Receives from {FAN_THRESHOLD}+ unique senders within 72 hours (aggregator pattern)",
+    "fan_out": f"Sends to {FAN_THRESHOLD}+ unique receivers within 72 hours (disperser pattern)",
     "shell_chain": "Part of a layered chain through low-activity shell accounts",
     "round_trip": "Bi-directional flow with similar amounts (possible round-tripping)",
     "amount_anomaly": "Transaction amounts deviate >3σ from account's mean",
@@ -173,6 +174,8 @@ def calculate_scores(
         pattern    = ring["pattern"]
         base_score = PATTERN_SCORES.get(pattern, 10.0)
         hub        = ring.get("hub")  # set by smurf_detector for fan_in/fan_out
+        # shell_intermediaries: only the pass-through nodes (not source/destination)
+        shell_intermediaries = set(ring.get("shell_intermediaries", []))
 
         for acc in ring["members"]:
             e = _entry(acc)
@@ -185,6 +188,18 @@ def calculate_scores(
                 if acc == hub:
                     e["score"] += base_score
                     e["patterns"].add(pattern)
+            # For shell chains, only true intermediary shells get the pattern label.
+            # Source (L1) and destination (L4) are entry/exit nodes — they get the
+            # ring_id association but a lower shell score so precision is maintained.
+            elif pattern == "shell_chain":
+                if acc in shell_intermediaries:
+                    e["score"] += base_score
+                    e["patterns"].add(pattern)
+                else:
+                    # Entry/exit node: flag with a reduced score (half) and no label.
+                    # Still suspicious (they chose to route through shells) but less
+                    # certain than the confirmed pass-through nodes.
+                    e["score"] += base_score * 0.5
             else:
                 e["score"] += base_score
                 e["patterns"].add(pattern)
@@ -234,7 +249,7 @@ def calculate_scores(
 
     # 8. Normalise and build explanations
     for acc, e in data.items():
-        e["score"]    = min(round(e["score"], 1), 100.0)
+        e["score"]    = float(min(round(e["score"], 1), 100.0))  # always a float
         e["patterns"] = sorted(e["patterns"])   # deterministic order
         e["risk_explanation"] = _build_risk_explanation(
             e["patterns"], e["ring_ids"], e.get("_extra", {})

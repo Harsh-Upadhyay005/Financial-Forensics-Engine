@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════
-   GraphVisualization.css – Premium Graph Experience
+   GraphVisualization.css – Professional Light Graph Experience
    ══════════════════════════════════════════════════════════════ */
 
 .graph-container {
@@ -30,7 +30,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  background: rgba(10, 13, 24, 0.95);
+  background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
@@ -49,7 +49,7 @@
   align-items: center;
   gap: 14px;
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 .legend-item {
   display: flex;
@@ -66,9 +66,9 @@
 
 /* Ring selector */
 .graph-select {
-  background: var(--bg);
+  background: #ffffff;
   border: 1px solid var(--border);
-  color: var(--text-secondary);
+  color: var(--text);
   padding: 5px 10px;
   border-radius: var(--radius-sm);
   font-size: 0.75rem;
@@ -77,13 +77,13 @@
   cursor: pointer;
   max-width: 220px;
 }
-.graph-select:focus { border-color: var(--accent); }
+.graph-select:focus { border-color: var(--accent); box-shadow: var(--shadow-glow); }
 
 /* Filter pills */
 .filter-pills {
   display: flex;
   gap: 2px;
-  background: var(--bg);
+  background: #ffffff;
   padding: 2px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
@@ -104,8 +104,8 @@
 }
 .filter-pill:hover { color: var(--text-secondary); }
 .filter-pill.active {
-  background: var(--surface2);
-  color: var(--text);
+  background: var(--accent);
+  color: #ffffff;
   box-shadow: var(--shadow-sm);
 }
 
@@ -113,7 +113,7 @@
 .zoom-controls {
   display: flex;
   gap: 2px;
-  background: var(--bg);
+  background: #ffffff;
   padding: 2px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
@@ -138,13 +138,70 @@
   color: var(--text);
 }
 
+/* Flow toggle */
+.flow-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.flow-toggle-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.flow-toggle-btn.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.flow-toggle-btn.active svg { stroke: #ffffff; }
+
+/* Show-all / Smart-view button */
+.show-all-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.show-all-btn:hover {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+.show-all-btn.active {
+  background: rgba(79, 70, 229, 0.06);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* ── Graph Canvas ───────────────────────────────────────────── */
 .graph-canvas {
   background:
-    radial-gradient(ellipse at 25% 30%, rgba(168,85,247,0.06) 0%, transparent 55%),
-    radial-gradient(ellipse at 75% 70%, rgba(245,158,11,0.04) 0%, transparent 45%),
-    var(--bg);
+    radial-gradient(ellipse at 25% 30%, rgba(79,70,229,0.04) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 70%, rgba(14,165,233,0.03) 0%, transparent 45%),
+    linear-gradient(180deg, #f8f9fc 0%, #f1f5f9 100%);
   position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0 4px;
+  overflow: hidden;
 }
 
 /* ── Hover Tooltip ──────────────────────────────────────────── */
@@ -155,7 +212,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--surface-solid);
+  background: #ffffff;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px 14px;
@@ -174,6 +231,7 @@
   font-weight: 600;
   font-family: var(--font-mono);
   font-size: 0.75rem;
+  color: var(--text);
 }
 .tooltip-score {
   color: var(--danger);
@@ -187,13 +245,13 @@
   top: 60px;
   right: 16px;
   width: 300px;
-  background: rgba(10, 13, 24, 0.92);
-  backdrop-filter: blur(32px) saturate(180%);
-  -webkit-backdrop-filter: blur(32px) saturate(180%);
-  border: 1px solid rgba(168,85,247,0.14);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   z-index: 20;
-  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(168,85,247,0.05) inset;
+  box-shadow: var(--shadow-xl);
   animation: fadeInUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   overflow: hidden;
 }
@@ -203,8 +261,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-bottom: 1px solid rgba(168,85,247,0.10);
-  background: linear-gradient(135deg, rgba(168,85,247,0.09), rgba(245,158,11,0.04));
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(79,70,229,0.05), rgba(14,165,233,0.03));
 }
 
 .panel-title-row {
@@ -219,6 +277,7 @@
   font-family: var(--font-mono);
   word-break: break-all;
   line-height: 1.3;
+  color: var(--text);
 }
 .panel-dot {
   width: 10px; height: 10px;
@@ -236,7 +295,7 @@
   display: flex;
   transition: all 0.15s;
 }
-.close-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+.close-btn:hover { background: rgba(0,0,0,0.05); color: var(--text); }
 
 /* Score bar in panel */
 .panel-score-bar {
@@ -249,7 +308,7 @@
 .score-track {
   flex: 1;
   height: 6px;
-  background: var(--border);
+  background: var(--surface2);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -329,14 +388,14 @@
   padding: 3px 10px;
   border-radius: 100px;
   background: var(--accent-glow);
-  color: var(--accent-light);
-  border: 1px solid rgba(168, 85, 247, 0.2);
+  color: var(--accent);
+  border: 1px solid rgba(79, 70, 229, 0.18);
   cursor: pointer;
   transition: all 0.2s;
 }
 .ring-tag:hover {
-  background: rgba(168, 85, 247, 0.2);
-  border-color: rgba(168, 85, 247, 0.4);
+  background: rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.30);
 }
 .ring-tag.active {
   background: var(--accent);
@@ -365,8 +424,8 @@
   color: var(--text-secondary);
   line-height: 1.55;
   padding: 8px 10px;
-  background: rgba(244, 63, 94, 0.06);
-  border: 1px solid rgba(244, 63, 94, 0.12);
+  background: rgba(239, 68, 68, 0.04);
+  border: 1px solid rgba(239, 68, 68, 0.10);
   border-radius: 6px;
   margin: 0;
 }
@@ -384,7 +443,7 @@
   flex: 1;
   min-width: 3px;
   height: var(--bar-height, 2%);
-  background: var(--accent, #a855f7);
+  background: var(--accent);
   border-radius: 2px 2px 0 0;
   opacity: 0.45;
   transition: opacity 0.15s, transform 0.15s;
@@ -395,7 +454,7 @@
   transform-origin: bottom;
 }
 .temporal-bar.peak {
-  background: linear-gradient(180deg, var(--danger, #f43f5e), rgba(244,63,94,0.6));
+  background: linear-gradient(180deg, var(--danger), rgba(239,68,68,0.6));
   opacity: 1;
 }
 
@@ -415,9 +474,9 @@
   border-radius: 20px;
   font-size: 0.7rem;
   font-weight: 600;
-  background: rgba(168, 85, 247, 0.1);
-  color: var(--accent-light, #c084fc);
-  border: 1px solid rgba(168, 85, 247, 0.2);
+  background: rgba(79, 70, 229, 0.06);
+  color: var(--accent);
+  border: 1px solid rgba(79, 70, 229, 0.15);
   font-family: var(--font-mono);
 }
 
@@ -427,14 +486,20 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: rgba(10, 13, 24, 0.95);
+  background: var(--bg-subtle);
   border-top: 1px solid var(--border);
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 .graph-footer-sep { opacity: 0.3; }
 .text-danger { color: var(--danger); font-weight: 600; }
-.text-accent { color: var(--accent-light); font-weight: 600; }
+.text-accent { color: var(--accent); font-weight: 600; }
+.text-muted-badge {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  opacity: 0.6;
+  font-style: italic;
+}
 
 /* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 768px) {

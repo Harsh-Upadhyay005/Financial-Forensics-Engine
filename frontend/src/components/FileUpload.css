@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════
-   FileUpload.css – Premium Upload Experience
+   FileUpload.css – Professional Light Upload Experience
    ══════════════════════════════════════════════════════════════ */
 
 .upload-section {
@@ -11,8 +11,8 @@
 /* ── Dropzone ───────────────────────────────────────────────── */
 .dropzone {
   position: relative;
-  background: var(--surface);
-  border: 2px dashed rgba(255, 255, 255, 0.07);
+  background: #ffffff;
+  border: 2px dashed #d1d5db;
   border-radius: var(--radius-lg);
   padding: 52px 32px;
   display: flex;
@@ -29,25 +29,25 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(168,85,247,0.07), rgba(245,158,11,0.02) 60%, transparent);
+  background: linear-gradient(135deg, rgba(79,70,229,0.04), rgba(14,165,233,0.02) 60%, transparent);
   opacity: 0;
   transition: opacity 0.35s;
 }
 
 .dropzone:hover {
-  border-color: rgba(168, 85, 247, 0.40);
-  background: rgba(14, 10, 24, 0.95);
+  border-color: var(--accent);
+  background: #fafafe;
   transform: translateY(-2px);
-  box-shadow: var(--shadow-glow), 0 0 0 1px rgba(168,85,247,0.08);
+  box-shadow: var(--shadow-glow), var(--shadow);
 }
 .dropzone:hover::before { opacity: 1; }
 
 .dropzone.dragging {
   border-color: var(--accent);
   border-style: solid;
-  background: rgba(168, 85, 247, 0.07);
+  background: rgba(79, 70, 229, 0.04);
   transform: scale(1.01);
-  box-shadow: 0 0 80px rgba(168, 85, 247, 0.16);
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.10);
 }
 .dropzone.dragging::before { opacity: 1; }
 
@@ -67,21 +67,21 @@
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: linear-gradient(135deg, rgba(168,85,247,0.15), rgba(245,158,11,0.10));
-  border: 1px solid rgba(168, 85, 247, 0.22);
+  background: linear-gradient(135deg, rgba(79,70,229,0.08), rgba(14,165,233,0.06));
+  border: 1px solid rgba(79, 70, 229, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-light);
+  color: var(--accent);
   transition: all 0.35s;
-  box-shadow: 0 4px 24px rgba(168,85,247,0.10);
+  box-shadow: 0 4px 16px rgba(79,70,229,0.08);
 }
 
 .dropzone:hover .upload-icon-ring {
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(245, 158, 11, 0.15));
-  border-color: rgba(168, 85, 247, 0.45);
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.14), rgba(14, 165, 233, 0.08));
+  border-color: rgba(79, 70, 229, 0.30);
   transform: translateY(-3px);
-  box-shadow: 0 12px 32px rgba(168, 85, 247, 0.22);
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.15);
 }
 
 /* ── Text ───────────────────────────────────────────────────── */
@@ -138,6 +138,7 @@
 .schema-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
   background: var(--surface2);
@@ -147,6 +148,53 @@
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.schema-toggle {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: background 0.2s;
+}
+.schema-toggle:hover {
+  background: rgba(79, 70, 229, 0.04);
+}
+
+.schema-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schema-chevron {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  flex-shrink: 0;
+}
+.schema-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.schema-card:not(.open) {
+  border-bottom: none;
+}
+.schema-card:not(.open) .schema-header {
+  border-bottom: none;
+}
+
+.schema-dropdown-body {
+  animation: schemaSlideDown 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes schemaSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .schema-cols {
@@ -195,8 +243,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(245, 158, 11, 0.04);
-  border: 1px solid rgba(245, 158, 11, 0.14);
+  background: rgba(14, 165, 233, 0.05);
+  border: 1px solid rgba(14, 165, 233, 0.18);
   color: var(--accent2);
   padding: 10px 20px;
   border-radius: var(--radius);
@@ -211,11 +259,11 @@
 }
 
 .btn-sample:hover {
-  color: #fff;
+  color: #0369a1;
   border-color: var(--accent2);
-  background: rgba(245, 158, 11, 0.14);
+  background: rgba(14, 165, 233, 0.10);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.20);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.12);
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */

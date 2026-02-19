@@ -1,13 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
-   SummaryTable.css – Premium Data Tables
+   SummaryTable.css – Professional Light Data Tables
    ══════════════════════════════════════════════════════════════ */
 
 .table-container {
-  background: var(--surface);
+  background: #ffffff;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  box-shadow: var(--shadow-xs);
 }
 
 /* ── Toolbar ────────────────────────────────────────────────── */
@@ -18,7 +19,7 @@
   gap: 12px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
-  background: rgba(10, 13, 24, 0.95);
+  background: var(--bg-subtle);
 }
 
 .search-wrap {
@@ -26,11 +27,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg);
+  background: #ffffff;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0 12px;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   color: var(--text-muted);
 }
 .search-wrap:focus-within {
@@ -106,11 +107,11 @@
   cursor: pointer;
   transition: color 0.2s;
 }
-.data-table th.sortable:hover { color: var(--accent-light); }
+.data-table th.sortable:hover { color: var(--accent); }
 
 .sort-arrow { margin-left: 4px; font-size: 0.7rem; }
 .sort-arrow.muted { opacity: 0.3; }
-.sort-arrow.active { color: var(--accent-light); opacity: 1; }
+.sort-arrow.active { color: var(--accent); opacity: 1; }
 
 .data-table td {
   padding: 13px 20px;
@@ -121,21 +122,21 @@
 }
 .data-table tbody tr { animation: fadeInUp 0.35s both; }
 .data-table tr:last-child td { border-bottom: none; }
-.data-table tr:hover td { background: rgba(168,85,247,0.04); }
-.data-table tr:hover td:first-child { box-shadow: inset 2px 0 0 rgba(168,85,247,0.4); }
-.data-table tr.expanded td { background: rgba(168, 85, 247, 0.05); }
+.data-table tr:hover td { background: rgba(79,70,229,0.03); }
+.data-table tr:hover td:first-child { box-shadow: inset 2px 0 0 rgba(79,70,229,0.35); }
+.data-table tr.expanded td { background: rgba(79, 70, 229, 0.04); }
 
 /* ── Ring pill ──────────────────────────────────────────────── */
 .ring-pill {
-  background: linear-gradient(135deg, rgba(168,85,247,0.20), rgba(245,158,11,0.12));
-  color: var(--accent-light);
+  background: linear-gradient(135deg, rgba(79,70,229,0.08), rgba(14,165,233,0.06));
+  color: var(--accent);
   padding: 3px 12px;
   border-radius: 20px;
   font-size: 0.72rem;
   font-weight: 700;
   font-family: var(--font-mono);
   letter-spacing: 0.02em;
-  border: 1px solid rgba(168, 85, 247, 0.25);
+  border: 1px solid rgba(79, 70, 229, 0.18);
   white-space: nowrap;
 }
 
@@ -159,9 +160,22 @@
   font-weight: 600;
 }
 
-/* ── Accounts cell with chips ───────────────────────────────── */
-.accounts-cell { max-width: 380px; }
+/* ── Accounts cell with comma-separated IDs ─────────────────── */
+.accounts-cell { max-width: 420px; }
 .acct-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.acct-comma-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+.acct-comma-text {
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  word-break: break-all;
+}
 .acct-chip {
   background: var(--surface3);
   border: 1px solid var(--border);

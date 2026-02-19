@@ -9,6 +9,8 @@ export default function DownloadButton({ result }) {
       suspicious_accounts: result.suspicious_accounts,
       fraud_rings: result.fraud_rings,
       summary: result.summary,
+      graph: result.graph,
+      ...(result.parse_stats && { parse_stats: result.parse_stats }),
     }
     const blob = new Blob(
       [JSON.stringify(output, null, 2)],

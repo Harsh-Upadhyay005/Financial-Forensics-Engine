@@ -30,7 +30,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  background: var(--surface2);
+  background: rgba(10, 13, 24, 0.95);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
@@ -57,10 +57,11 @@
   gap: 5px;
 }
 .legend-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 4px currentColor;
 }
 
 /* Ring selector */
@@ -140,7 +141,8 @@
 /* ── Graph Canvas ───────────────────────────────────────────── */
 .graph-canvas {
   background:
-    radial-gradient(ellipse at center, rgba(99,102,241,0.03) 0%, transparent 70%),
+    radial-gradient(ellipse at 25% 30%, rgba(168,85,247,0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 70%, rgba(245,158,11,0.04) 0%, transparent 45%),
     var(--bg);
   position: relative;
 }
@@ -185,11 +187,13 @@
   top: 60px;
   right: 16px;
   width: 300px;
-  background: var(--surface-solid);
-  border: 1px solid var(--border);
+  background: rgba(10, 13, 24, 0.92);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(168,85,247,0.14);
   border-radius: var(--radius-lg);
   z-index: 20;
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(168,85,247,0.05) inset;
   animation: fadeInUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   overflow: hidden;
 }
@@ -199,8 +203,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface2);
+  border-bottom: 1px solid rgba(168,85,247,0.10);
+  background: linear-gradient(135deg, rgba(168,85,247,0.09), rgba(245,158,11,0.04));
 }
 
 .panel-title-row {
@@ -326,13 +330,13 @@
   border-radius: 100px;
   background: var(--accent-glow);
   color: var(--accent-light);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.2);
   cursor: pointer;
   transition: all 0.2s;
 }
 .ring-tag:hover {
-  background: rgba(99, 102, 241, 0.2);
-  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.4);
 }
 .ring-tag.active {
   background: var(--accent);
@@ -355,13 +359,75 @@
   white-space: nowrap;
 }
 
+/* ── Risk Explanation Text ──────────────────────────────────── */
+.risk-explanation-text {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  padding: 8px 10px;
+  background: rgba(244, 63, 94, 0.06);
+  border: 1px solid rgba(244, 63, 94, 0.12);
+  border-radius: 6px;
+  margin: 0;
+}
+
+/* ── Temporal Bar Chart ─────────────────────────────────────── */
+.temporal-bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 40px;
+  padding: 0 2px;
+}
+
+.temporal-bar {
+  flex: 1;
+  min-width: 3px;
+  height: var(--bar-height, 2%);
+  background: var(--accent, #a855f7);
+  border-radius: 2px 2px 0 0;
+  opacity: 0.45;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.temporal-bar:hover {
+  opacity: 1;
+  transform: scaleY(1.05);
+  transform-origin: bottom;
+}
+.temporal-bar.peak {
+  background: linear-gradient(180deg, var(--danger, #f43f5e), rgba(244,63,94,0.6));
+  opacity: 1;
+}
+
+.temporal-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+/* ── Community Badge ────────────────────────────────────────── */
+.community-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(168, 85, 247, 0.1);
+  color: var(--accent-light, #c084fc);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  font-family: var(--font-mono);
+}
+
 /* ── Graph Footer ───────────────────────────────────────────── */
 .graph-footer {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: var(--surface2);
+  background: rgba(10, 13, 24, 0.95);
   border-top: 1px solid var(--border);
   font-size: 0.72rem;
   color: var(--text-muted);

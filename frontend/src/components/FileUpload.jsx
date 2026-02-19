@@ -48,7 +48,7 @@ export default function FileUpload({ onResult, onLoading, onError, loading }) {
 
     try {
       const apiBase = import.meta.env.VITE_API_URL || ''
-      const { data } = await axios.post(`${apiBase}/analyze`, formData, {
+      const { data } = await axios.post(`${apiBase}/analyze?detail=true`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000,
       })

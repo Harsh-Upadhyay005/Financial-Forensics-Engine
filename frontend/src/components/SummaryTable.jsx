@@ -3,19 +3,23 @@ import './SummaryTable.css'
 
 /* ── Pattern badge config ──────────────────────────────────── */
 const PATTERN_LABELS = {
-  cycle_length_3: { label: 'Cycle ×3', color: '#f43f5e' },
-  cycle_length_4: { label: 'Cycle ×4', color: '#fb923c' },
-  cycle_length_5: { label: 'Cycle ×5', color: '#facc15' },
-  fan_in:         { label: 'Fan-in',   color: '#c084fc' },
-  fan_out:        { label: 'Fan-out',  color: '#818cf8' },
-  shell_chain:    { label: 'Shell Chain', color: '#22d3ee' },
-  high_velocity:  { label: 'High Velocity', color: '#fb923c' },
-  multi_ring:     { label: 'Multi-Ring', color: '#f472b6' },
-  cycle:          { label: 'Cycle',     color: '#f43f5e' },
+  cycle_length_3:  { label: 'Cycle ×3',        color: '#f43f5e' },
+  cycle_length_4:  { label: 'Cycle ×4',        color: '#fb923c' },
+  cycle_length_5:  { label: 'Cycle ×5',        color: '#facc15' },
+  fan_in:          { label: 'Fan-in',          color: '#c084fc' },
+  fan_out:         { label: 'Fan-out',         color: '#a78bfa' },
+  shell_chain:     { label: 'Shell Chain',     color: '#fb923c' },
+  round_trip:      { label: 'Round Trip',      color: '#f59e0b' },
+  amount_anomaly:  { label: 'Amount Anomaly',  color: '#ef4444' },
+  rapid_movement:  { label: 'Rapid Movement',  color: '#f97316' },
+  structuring:     { label: 'Structuring',     color: '#eab308' },
+  high_velocity:   { label: 'High Velocity',   color: '#fb923c' },
+  multi_ring:      { label: 'Multi-Ring',      color: '#f472b6' },
+  cycle:           { label: 'Cycle',           color: '#f43f5e' },
 }
 
 function PatternBadge({ pattern }) {
-  const info = PATTERN_LABELS[pattern] || { label: pattern, color: '#6366f1' }
+  const info = PATTERN_LABELS[pattern] || { label: pattern, color: '#a855f7' }
   return (
     <span
       className="pattern-badge"
@@ -41,6 +45,17 @@ function ScoreBar({ score }) {
       </div>
       <span className="score-value" style={{ color }}>{score}</span>
     </div>
+  )
+}
+
+function ConfidenceBadge({ value }) {
+  if (value == null) return <span className="confidence-na">—</span>
+  const pct = Math.round(value * 100)
+  const color = pct >= 80 ? '#22c55e' : pct >= 60 ? '#facc15' : '#f97316'
+  return (
+    <span className="confidence-badge" style={{ '--conf-color': color, color, background: color + '18', borderColor: color + '33' }}>
+      {pct}%
+    </span>
   )
 }
 
@@ -92,6 +107,7 @@ export default function SummaryTable({ rings, accounts, type }) {
       )
       if (sortCol === 'risk_score') arr = [...arr].sort((a, b) => sortDir === 'asc' ? a.risk_score - b.risk_score : b.risk_score - a.risk_score)
       if (sortCol === 'members') arr = [...arr].sort((a, b) => sortDir === 'asc' ? a.member_accounts.length - b.member_accounts.length : b.member_accounts.length - a.member_accounts.length)
+      if (sortCol === 'confidence') arr = [...arr].sort((a, b) => sortDir === 'asc' ? (a.confidence || 0) - (b.confidence || 0) : (b.confidence || 0) - (a.confidence || 0))
       return arr
     }, [rings, search, sortCol, sortDir])
 
@@ -126,6 +142,7 @@ export default function SummaryTable({ rings, accounts, type }) {
                   <th>Pattern</th>
                   <th className="sortable" onClick={() => handleSort('members')}>Members <SortArrow col="members" /></th>
                   <th className="sortable" onClick={() => handleSort('risk_score')}>Risk Score <SortArrow col="risk_score" /></th>
+                  <th className="sortable" onClick={() => handleSort('confidence')}>Confidence <SortArrow col="confidence" /></th>
                   <th>Member Accounts</th>
                 </tr>
               </thead>
@@ -145,6 +162,9 @@ export default function SummaryTable({ rings, accounts, type }) {
                       <td className="count-cell">{ring.member_accounts.length}</td>
                       <td>
                         <ScoreBar score={ring.risk_score} />
+                      </td>
+                      <td>
+                        <ConfidenceBadge value={ring.confidence} />
                       </td>
                       <td className="accounts-cell">
                         <div className="acct-list">
@@ -219,25 +239,39 @@ export default function SummaryTable({ rings, accounts, type }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((acc, i) => (
-                <tr key={acc.account_id} style={{ animationDelay: `${i * 0.02}s` }}>
-                  <td className="idx-cell">{i + 1}</td>
-                  <td><span className="acc-id">{acc.account_id}</span></td>
-                  <td>
-                    <ScoreBar score={acc.suspicion_score} />
-                  </td>
-                  <td>
-                    <div className="pattern-tags">
-                      {acc.detected_patterns.map(p => (
-                        <PatternBadge key={p} pattern={p} />
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <span className="ring-pill">{acc.ring_id}</span>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((acc, i) => {
+                const isExp = expandedRow === acc.account_id
+                return (
+                  <tr
+                    key={acc.account_id}
+                    className={isExp ? 'expanded' : ''}
+                    style={{ animationDelay: `${i * 0.02}s`, cursor: acc.risk_explanation ? 'pointer' : 'default' }}
+                    onClick={() => acc.risk_explanation && setExpandedRow(isExp ? null : acc.account_id)}
+                  >
+                    <td className="idx-cell">{i + 1}</td>
+                    <td><span className="acc-id">{acc.account_id}</span></td>
+                    <td>
+                      <ScoreBar score={acc.suspicion_score} />
+                    </td>
+                    <td>
+                      <div className="pattern-tags">
+                        {acc.detected_patterns.map(p => (
+                          <PatternBadge key={p} pattern={p} />
+                        ))}
+                      </div>
+                      {isExp && acc.risk_explanation && (
+                        <div className="risk-explanation">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                          {acc.risk_explanation}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <span className="ring-pill">{acc.ring_id}</span>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

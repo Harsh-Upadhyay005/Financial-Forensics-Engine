@@ -4,25 +4,33 @@ import './GraphVisualization.css'
 
 /* ── Pattern → Color mapping ──────────────────────────────── */
 const PATTERN_COLORS = {
-  cycle_length_3: '#f43f5e',
-  cycle_length_4: '#fb7185',
-  cycle_length_5: '#fda4af',
-  fan_in:         '#a78bfa',
-  fan_out:        '#8b5cf6',
-  shell_chain:    '#22d3ee',
-  high_velocity:  '#f59e0b',
-  multi_ring:     '#fbbf24',
+  cycle_length_3:  '#f43f5e',
+  cycle_length_4:  '#fb7185',
+  cycle_length_5:  '#fda4af',
+  fan_in:          '#a78bfa',
+  fan_out:         '#8b5cf6',
+  shell_chain:     '#fb923c',
+  round_trip:      '#f59e0b',
+  amount_anomaly:  '#ef4444',
+  rapid_movement:  '#f97316',
+  structuring:     '#eab308',
+  high_velocity:   '#f59e0b',
+  multi_ring:      '#fbbf24',
 }
 
 const PATTERN_LABELS = {
-  cycle_length_3: 'Cycle (3)',
-  cycle_length_4: 'Cycle (4)',
-  cycle_length_5: 'Cycle (5)',
-  fan_in:         'Fan-in',
-  fan_out:        'Fan-out',
-  shell_chain:    'Shell Chain',
-  high_velocity:  'High Velocity',
-  multi_ring:     'Multi Ring',
+  cycle_length_3:  'Cycle (3)',
+  cycle_length_4:  'Cycle (4)',
+  cycle_length_5:  'Cycle (5)',
+  fan_in:          'Fan-in',
+  fan_out:         'Fan-out',
+  shell_chain:     'Shell Chain',
+  round_trip:      'Round Trip',
+  amount_anomaly:  'Anomaly',
+  rapid_movement:  'Rapid Move',
+  structuring:     'Structuring',
+  high_velocity:   'High Velocity',
+  multi_ring:      'Multi Ring',
 }
 
 /* ── Node styling helpers ─────────────────────────────────── */
@@ -32,7 +40,11 @@ function getNodeColor(node) {
   if (p.some(x => x.startsWith('cycle')))    return '#f43f5e'
   if (p.includes('fan_in'))                   return '#a78bfa'
   if (p.includes('fan_out'))                  return '#8b5cf6'
-  if (p.includes('shell_chain'))              return '#22d3ee'
+  if (p.includes('shell_chain'))              return '#fb923c'
+  if (p.includes('round_trip'))               return '#f59e0b'
+  if (p.includes('amount_anomaly'))           return '#ef4444'
+  if (p.includes('rapid_movement'))           return '#f97316'
+  if (p.includes('structuring'))              return '#eab308'
   if (p.includes('high_velocity'))            return '#f59e0b'
   return '#fbbf24'
 }
@@ -49,7 +61,11 @@ const LEGEND = [
   { color: '#f43f5e',  label: 'Cycle' },
   { color: '#a78bfa',  label: 'Fan-in' },
   { color: '#8b5cf6',  label: 'Fan-out' },
-  { color: '#22d3ee',  label: 'Shell' },
+  { color: '#fb923c',  label: 'Shell' },
+  { color: '#f59e0b',  label: 'Round Trip' },
+  { color: '#ef4444',  label: 'Anomaly' },
+  { color: '#f97316',  label: 'Rapid Move' },
+  { color: '#eab308',  label: 'Structuring' },
   { color: '#f59e0b',  label: 'Velocity' },
 ]
 
@@ -258,7 +274,7 @@ export default function GraphVisualization({ graphData, rings }) {
           linkDirectionalParticles={1}
           linkDirectionalParticleSpeed={0.003}
           linkDirectionalParticleWidth={1.5}
-          linkDirectionalParticleColor={() => 'rgba(99,102,241,0.5)'}
+          linkDirectionalParticleColor={() => 'rgba(168,85,247,0.5)'}
           backgroundColor="transparent"
           width={undefined}
           height={580}
@@ -357,6 +373,12 @@ export default function GraphVisualization({ graphData, rings }) {
             {/* Suspicious details */}
             {selected.suspicious && (
               <>
+                {selected.risk_explanation && (
+                  <div className="panel-section">
+                    <span className="meta-label">Risk Explanation</span>
+                    <p className="risk-explanation-text">{selected.risk_explanation}</p>
+                  </div>
+                )}
                 {selected.ring_ids?.length > 0 && (
                   <div className="panel-section">
                     <span className="meta-label">Ring Membership</span>
@@ -382,9 +404,9 @@ export default function GraphVisualization({ graphData, rings }) {
                           key={p}
                           className="pattern-tag"
                           style={{
-                            background: (PATTERN_COLORS[p] || '#6366f1') + '18',
-                            color: PATTERN_COLORS[p] || '#6366f1',
-                            border: `1px solid ${(PATTERN_COLORS[p] || '#6366f1')}33`,
+                            background: (PATTERN_COLORS[p] || '#a855f7') + '18',
+                            color: PATTERN_COLORS[p] || '#a855f7',
+                            border: `1px solid ${(PATTERN_COLORS[p] || '#a855f7')}33`,
                           }}
                         >
                           {PATTERN_LABELS[p] || p}
@@ -393,7 +415,38 @@ export default function GraphVisualization({ graphData, rings }) {
                     </div>
                   </div>
                 )}
+                {selected.temporal_profile && (
+                  <div className="panel-section">
+                    <span className="meta-label">Temporal Profile</span>
+                    <div className="temporal-bar-chart">
+                      {selected.temporal_profile.hourly_distribution.map((count, hour) => {
+                        const maxCount = Math.max(...selected.temporal_profile.hourly_distribution, 1)
+                        const heightPct = (count / maxCount) * 100
+                        const isPeak = hour === selected.temporal_profile.peak_hour
+                        return (
+                          <div
+                            key={hour}
+                            className={`temporal-bar ${isPeak ? 'peak' : ''}`}
+                            style={{ '--bar-height': `${Math.max(heightPct, 2)}%` }}
+                            title={`${hour}:00 — ${count} tx${isPeak ? ' (peak)' : ''}`}
+                          />
+                        )
+                      })}
+                    </div>
+                    <div className="temporal-meta">
+                      <span>Peak: {selected.temporal_profile.peak_hour}:00</span>
+                      <span>{selected.temporal_profile.active_hours}/24h active</span>
+                    </div>
+                  </div>
+                )}
               </>
+            )}
+
+            {selected.community_id != null && (
+              <div className="panel-section">
+                <span className="meta-label">Community</span>
+                <span className="community-badge">Community #{selected.community_id}</span>
+              </div>
             )}
           </div>
         </div>

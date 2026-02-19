@@ -12,13 +12,13 @@
 .dropzone {
   position: relative;
   background: var(--surface);
-  border: 2px dashed rgba(255, 255, 255, 0.08);
+  border: 2px dashed rgba(255, 255, 255, 0.07);
   border-radius: var(--radius-lg);
-  padding: 48px 32px;
+  padding: 52px 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
   cursor: pointer;
   transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
   text-align: center;
@@ -29,24 +29,25 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, var(--accent-glow), transparent 60%);
+  background: linear-gradient(135deg, rgba(168,85,247,0.07), rgba(245,158,11,0.02) 60%, transparent);
   opacity: 0;
   transition: opacity 0.35s;
 }
 
 .dropzone:hover {
-  border-color: rgba(99, 102, 241, 0.35);
-  background: rgba(14, 18, 32, 0.95);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glow);
+  border-color: rgba(168, 85, 247, 0.40);
+  background: rgba(14, 10, 24, 0.95);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow), 0 0 0 1px rgba(168,85,247,0.08);
 }
 .dropzone:hover::before { opacity: 1; }
 
 .dropzone.dragging {
   border-color: var(--accent);
-  background: rgba(99, 102, 241, 0.06);
+  border-style: solid;
+  background: rgba(168, 85, 247, 0.07);
   transform: scale(1.01);
-  box-shadow: 0 0 60px rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 80px rgba(168, 85, 247, 0.16);
 }
 .dropzone.dragging::before { opacity: 1; }
 
@@ -63,23 +64,24 @@
 }
 
 .upload-icon-ring {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-glow), rgba(6, 214, 160, 0.08));
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: linear-gradient(135deg, rgba(168,85,247,0.15), rgba(245,158,11,0.10));
+  border: 1px solid rgba(168, 85, 247, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--accent-light);
   transition: all 0.35s;
+  box-shadow: 0 4px 24px rgba(168,85,247,0.10);
 }
 
 .dropzone:hover .upload-icon-ring {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(6, 214, 160, 0.12));
-  border-color: rgba(99, 102, 241, 0.4);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.15);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(245, 158, 11, 0.15));
+  border-color: rgba(168, 85, 247, 0.45);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(168, 85, 247, 0.22);
 }
 
 /* ── Text ───────────────────────────────────────────────────── */
@@ -92,13 +94,14 @@
 }
 
 .dropzone-title {
-  font-size: 1.05rem;
-  font-weight: 600;
+  font-size: 1.08rem;
+  font-weight: 700;
   color: var(--text);
+  letter-spacing: -0.02em;
 }
 
 .dropzone-subtitle {
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   color: var(--text-muted);
 }
 
@@ -192,26 +195,27 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  padding: 10px 18px;
+  background: rgba(245, 158, 11, 0.04);
+  border: 1px solid rgba(245, 158, 11, 0.14);
+  color: var(--accent2);
+  padding: 10px 20px;
   border-radius: var(--radius);
   cursor: pointer;
   font-size: 0.8rem;
-  font-weight: 500;
+  font-weight: 600;
   font-family: var(--font-sans);
   transition: all 0.25s;
   white-space: nowrap;
   flex-shrink: 0;
+  letter-spacing: 0.01em;
 }
 
 .btn-sample:hover {
-  color: var(--text);
+  color: #fff;
   border-color: var(--accent2);
-  background: var(--accent2-glow);
+  background: rgba(245, 158, 11, 0.14);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(6, 214, 160, 0.1);
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.20);
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */

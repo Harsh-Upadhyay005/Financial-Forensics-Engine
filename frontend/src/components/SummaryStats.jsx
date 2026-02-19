@@ -55,24 +55,57 @@ const CARDS = [
   },
 ]
 
+const NET_STATS = [
+  { key: 'total_nodes',   label: 'Total Nodes',      format: v => v?.toLocaleString() ?? '—' },
+  { key: 'total_edges',   label: 'Total Edges',      format: v => v?.toLocaleString() ?? '—' },
+  { key: 'graph_density', label: 'Graph Density',     format: v => v != null ? v.toFixed(4) : '—' },
+  { key: 'avg_degree',    label: 'Avg Degree',        format: v => v != null ? v.toFixed(2) : '—' },
+  { key: 'connected_components', label: 'Connected Components', format: v => v?.toLocaleString() ?? '—' },
+  { key: 'avg_clustering', label: 'Avg Clustering',   format: v => v != null ? v.toFixed(4) : '—' },
+]
+
 export default function SummaryStats({ summary }) {
+  const net = summary?.network_statistics
+
   return (
-    <div className="stats-grid">
-      {CARDS.map((card, i) => (
-        <div
-          key={card.key}
-          className={`stat-card ${card.theme}`}
-          style={{ animationDelay: `${i * 0.08}s` }}
-        >
-          <div className="stat-icon-wrap">
-            {card.icon}
+    <div className="stats-section">
+      <div className="stats-grid">
+        {CARDS.map((card, i) => (
+          <div
+            key={card.key}
+            className={`stat-card ${card.theme}`}
+            style={{ animationDelay: `${i * 0.08}s` }}
+          >
+            <div className="stat-icon-wrap">
+              {card.icon}
+            </div>
+            <div className="stat-content">
+              <div className="stat-value">{card.getValue(summary)}</div>
+              <div className="stat-label">{card.label}</div>
+            </div>
           </div>
-          <div className="stat-content">
-            <div className="stat-value">{card.getValue(summary)}</div>
-            <div className="stat-label">{card.label}</div>
+        ))}
+      </div>
+
+      {net && (
+        <div className="net-stats-bar">
+          <div className="net-stats-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/>
+              <line x1="9" y1="6" x2="15" y2="6"/><line x1="6" y1="9" x2="6" y2="15"/><line x1="18" y1="9" x2="18" y2="15"/><line x1="9" y1="18" x2="15" y2="18"/>
+            </svg>
+            <span>Network Statistics</span>
+          </div>
+          <div className="net-stats-items">
+            {NET_STATS.map(s => (
+              <div key={s.key} className="net-stat-item">
+                <span className="net-stat-value">{s.format(net[s.key])}</span>
+                <span className="net-stat-label">{s.label}</span>
+              </div>
+            ))}
           </div>
         </div>
-      ))}
+      )}
     </div>
   )
 }

@@ -61,8 +61,10 @@ def detect_shell_networks(G: nx.DiGraph) -> List[Dict]:
     # ── Identify pass-through shell nodes ─────────────────────────────────────
     # Nodes inside cycles share an SCC with other nodes — exclude them so that
     # cycle edges are never counted as "shell" layers.
+    # Re-use precomputed SCCs from build_graph if available.
+    sccs = G.graph.get("_sccs") or list(nx.strongly_connected_components(G))
     cycle_nodes: set = set()
-    for component in nx.strongly_connected_components(G):
+    for component in sccs:
         if len(component) > 1:
             cycle_nodes.update(component)
 

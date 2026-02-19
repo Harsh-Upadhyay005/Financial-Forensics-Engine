@@ -12,7 +12,7 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 
-def build_graph(df: pd.DataFrame) -> nx.DiGraph:
+def build_graph(df: pd.DataFrame, include_transactions: bool = True) -> nx.DiGraph:
     """
     Construct a directed weighted graph from a validated transaction DataFrame.
 
@@ -100,22 +100,6 @@ def build_graph(df: pd.DataFrame) -> nx.DiGraph:
     ])
 
     # ── Edges ──────────────────────────────────────────────────────────────────
-    # Build transaction dicts using itertuples (10-100x faster than iterrows).
-    # One sorted pass collects all txns keyed by (sender, receiver).
-    df_sorted = df.sort_values("timestamp")
-    tx_by_edge: dict[tuple, list] = {}
-    for row in df_sorted[
-        ["transaction_id", "amount", "timestamp", "sender_id", "receiver_id"]
-    ].itertuples(index=False):
-        key = (row.sender_id, row.receiver_id)
-        if key not in tx_by_edge:
-            tx_by_edge[key] = []
-        tx_by_edge[key].append({
-            "transaction_id": row.transaction_id,
-            "amount":         round(float(row.amount), 2),
-            "timestamp":      str(row.timestamp),
-        })
-
     # Edge-level aggregate stats — vectorised groupby, no Python row loop.
     edge_stats = df.groupby(["sender_id", "receiver_id"]).agg(
         total_amount=("amount", "sum"),
@@ -124,6 +108,27 @@ def build_graph(df: pd.DataFrame) -> nx.DiGraph:
         first_tx=("timestamp", "min"),
         last_tx=("timestamp", "max"),
     ).reset_index()
+
+    # Build per-edge transaction lists only when graph detail is needed
+    # (i.e. the frontend requested detail=true for graph visualisation).
+    # On 10k-row datasets this Python loop takes ~0.5-1s on slow CPUs — skip it
+    # when the caller only needs detection results.
+    if include_transactions:
+        df_sorted = df.sort_values("timestamp")
+        tx_by_edge: dict[tuple, list] = {}
+        for row in df_sorted[
+            ["transaction_id", "amount", "timestamp", "sender_id", "receiver_id"]
+        ].itertuples(index=False):
+            key = (row.sender_id, row.receiver_id)
+            if key not in tx_by_edge:
+                tx_by_edge[key] = []
+            tx_by_edge[key].append({
+                "transaction_id": row.transaction_id,
+                "amount":         round(float(row.amount), 2),
+                "timestamp":      str(row.timestamp),
+            })
+    else:
+        tx_by_edge = {}
 
     G.add_edges_from([
         (row.sender_id, row.receiver_id, {
@@ -136,6 +141,11 @@ def build_graph(df: pd.DataFrame) -> nx.DiGraph:
         })
         for row in edge_stats.itertuples(index=False)
     ])
+
+    # ── Precompute SCCs once ────────────────────────────────────────────────────
+    # Both cycle_detector and shell_detector need SCCs. Computing here once
+    # (O(V+E)) and caching avoids a duplicate pass on every request.
+    G.graph["_sccs"] = list(nx.strongly_connected_components(G))
 
     log.info("Graph built: %d nodes, %d edges", G.number_of_nodes(), G.number_of_edges())
     return G

@@ -138,19 +138,34 @@ async def analyze(
         total_accounts,
     )
 
-    #  Build graph 
-    G = build_graph(df)
+    #  Build graph (skip per-tx edge lists when detail=False — saves ~0.5s on slow CPUs)
+    t0 = time.perf_counter()
+    G = build_graph(df, include_transactions=detail)
+    log.info("build_graph: %.3fs", time.perf_counter() - t0)
 
     # Run core detectors
+    t0 = time.perf_counter()
     cycle_rings = detect_cycles(G)
+    log.info("detect_cycles: %.3fs → %d rings", time.perf_counter() - t0, len(cycle_rings))
+
+    t0 = time.perf_counter()
     smurf_rings = detect_smurfing(df)
+    log.info("detect_smurfing: %.3fs → %d rings", time.perf_counter() - t0, len(smurf_rings))
+
+    t0 = time.perf_counter()
     shell_rings = detect_shell_networks(G)
+    log.info("detect_shell_networks: %.3fs → %d rings", time.perf_counter() - t0, len(shell_rings))
+
+    t0 = time.perf_counter()
     roundtrip_rings = detect_round_trips(G)
+    log.info("detect_round_trips: %.3fs → %d rings", time.perf_counter() - t0, len(roundtrip_rings))
 
     # Run enrichment detectors
+    t0 = time.perf_counter()
     anomaly_accounts = detect_amount_anomalies(df)
     rapid_accounts = detect_rapid_movements(df)
     structuring_accounts = detect_structuring(df)
+    log.info("enrichment detectors: %.3fs", time.perf_counter() - t0)
 
     # Assign ring IDs 
     all_rings = assign_ring_ids(

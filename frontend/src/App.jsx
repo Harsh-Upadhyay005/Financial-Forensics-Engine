@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import FileUpload from './components/FileUpload'
-import GraphVisualization from './components/GraphVisualization'
-import SummaryTable from './components/SummaryTable'
 import DownloadButton from './components/DownloadButton'
-import SummaryStats from './components/SummaryStats'
 import './App.css'
+
+// Lazy-load heavy components (Cytoscape alone is ~300KB)
+const GraphVisualization = lazy(() => import('./components/GraphVisualization'))
+const SummaryTable = lazy(() => import('./components/SummaryTable'))
+const SummaryStats = lazy(() => import('./components/SummaryStats'))
 
 const TABS = [
   { key: 'graph',    icon: '◉', label: 'Network Graph' },
@@ -34,13 +36,13 @@ export default function App() {
             <div className="logo-mark">
               <svg viewBox="0 0 32 32" fill="none" className="logo-svg">
                 <rect x="2" y="2" width="28" height="28" rx="8" stroke="url(#grd)" strokeWidth="2" />
-                <circle cx="11" cy="13" r="3" fill="#c084fc" />
-                <circle cx="21" cy="13" r="3" fill="#f43f5e" />
-                <circle cx="16" cy="22" r="3" fill="#f59e0b" />
-                <line x1="13.5" y1="14.5" x2="18.5" y2="14.5" stroke="#c084fc" strokeWidth="1.2" />
-                <line x1="12" y1="15.5" x2="14.5" y2="20" stroke="#f59e0b" strokeWidth="1.2" />
-                <line x1="20" y1="15.5" x2="17.5" y2="20" stroke="#f43f5e" strokeWidth="1.2" />
-                <defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stopColor="#a855f7"/><stop offset="1" stopColor="#f59e0b"/></linearGradient></defs>
+                <circle cx="11" cy="13" r="3" fill="#6366f1" />
+                <circle cx="21" cy="13" r="3" fill="#ef4444" />
+                <circle cx="16" cy="22" r="3" fill="#0ea5e9" />
+                <line x1="13.5" y1="14.5" x2="18.5" y2="14.5" stroke="#6366f1" strokeWidth="1.2" />
+                <line x1="12" y1="15.5" x2="14.5" y2="20" stroke="#0ea5e9" strokeWidth="1.2" />
+                <line x1="20" y1="15.5" x2="17.5" y2="20" stroke="#ef4444" strokeWidth="1.2" />
+                <defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stopColor="#4f46e5"/><stop offset="1" stopColor="#0ea5e9"/></linearGradient></defs>
               </svg>
             </div>
             <div className="logo-text">
@@ -152,7 +154,9 @@ export default function App() {
               )}
 
               {/* Summary Statistics */}
-              <SummaryStats summary={result.summary} />
+              <Suspense fallback={<div className="lazy-placeholder">Loading stats…</div>}>
+                <SummaryStats summary={result.summary} />
+              </Suspense>
 
               {/* Tabs */}
               <div className="tabs-container">
@@ -175,17 +179,19 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="tab-panel">
-                  {activeTab === 'graph' && (
-                    <GraphVisualization graphData={result.graph} rings={result.fraud_rings} />
-                  )}
-                  {activeTab === 'rings' && (
-                    <SummaryTable rings={result.fraud_rings} type="rings" />
-                  )}
-                  {activeTab === 'accounts' && (
-                    <SummaryTable accounts={result.suspicious_accounts} type="accounts" />
-                  )}
-                </div>
+                <Suspense fallback={<div className="lazy-placeholder">Loading panel…</div>}>
+                  <div className="tab-panel">
+                    {activeTab === 'graph' && (
+                      <GraphVisualization graphData={result.graph} rings={result.fraud_rings} />
+                    )}
+                    {activeTab === 'rings' && (
+                      <SummaryTable rings={result.fraud_rings} type="rings" />
+                    )}
+                    {activeTab === 'accounts' && (
+                      <SummaryTable accounts={result.suspicious_accounts} type="accounts" />
+                    )}
+                  </div>
+                </Suspense>
               </div>
             </div>
           )}

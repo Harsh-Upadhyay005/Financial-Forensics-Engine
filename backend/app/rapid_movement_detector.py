@@ -38,20 +38,25 @@ def detect_rapid_movements(df: pd.DataFrame) -> Dict[str, Dict]:
     window_td = timedelta(minutes=RAPID_MOVEMENT_MINUTES)
     df_sorted = df.sort_values("timestamp")
 
-    # Build incoming and outgoing transaction lists per account
-    incoming: Dict[str, list] = {}
-    outgoing: Dict[str, list] = {}
+    # Build per-account sorted timestamp lists using vectorised groupby —
+    # avoids iterrows() which is O(N) in slow Python and takes ~15s on 10k rows.
+    recv_times: Dict[str, list] = (
+        df_sorted[["receiver_id", "timestamp"]]
+        .groupby("receiver_id")["timestamp"]
+        .apply(list)
+        .to_dict()
+    )
+    send_times: Dict[str, list] = (
+        df_sorted[["sender_id", "timestamp"]]
+        .groupby("sender_id")["timestamp"]
+        .apply(list)
+        .to_dict()
+    )
 
-    for _, row in df_sorted.iterrows():
-        sender = row["sender_id"]
-        receiver = row["receiver_id"]
-        ts = row["timestamp"]
+    # Rename for the loop below (mirrors old variable names)
+    incoming = recv_times
+    outgoing = send_times
 
-        outgoing.setdefault(sender, []).append(ts)
-        incoming.setdefault(receiver, []).append(ts)
-
-    # For each account, check if any outgoing tx follows an incoming tx
-    # within the window
     all_accounts = set(incoming.keys()) & set(outgoing.keys())
 
     for acc in all_accounts:

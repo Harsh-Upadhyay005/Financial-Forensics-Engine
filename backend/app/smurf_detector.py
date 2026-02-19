@@ -56,18 +56,19 @@ def _merchant_receivers(df: pd.DataFrame) -> Set[str]:
     Criterion: coefficient of variation (std / mean) of amounts received
     exceeds MERCHANT_AMOUNT_CV_THRESHOLD.  Retail purchases naturally have
     high price variance; structured smurf deposits do not.
+
+    Fully vectorised — no Python-level for-loop over groups.
     """
-    excluded: Set[str] = set()
-    for receiver, grp in df.groupby("receiver_id"):
-        amounts = grp["amount"].values
-        if len(amounts) < 2:
-            continue
-        mean = amounts.mean()
-        if mean == 0:
-            continue
-        cv = amounts.std(ddof=1) / mean  # sample std; population std underestimates on n=10
-        if cv > MERCHANT_AMOUNT_CV_THRESHOLD:
-            excluded.add(receiver)
+    # pandas groupby std() uses ddof=1 (sample std) by default — consistent with
+    # the previous per-group amounts.std(ddof=1) calculation.
+    stats = df.groupby("receiver_id")["amount"].agg(
+        mean_amt="mean",
+        std_amt="std",   # ddof=1
+        count_amt="count",
+    )
+    stats = stats[(stats["count_amt"] >= 2) & (stats["mean_amt"] > 0)]
+    stats["cv"] = stats["std_amt"] / stats["mean_amt"]
+    excluded = set(stats[stats["cv"] > MERCHANT_AMOUNT_CV_THRESHOLD].index)
     if excluded:
         log.info("Fan-in merchant exclusion (high amount CV): %d accounts", len(excluded))
     return excluded
@@ -81,15 +82,14 @@ def _payroll_senders(df: pd.DataFrame) -> Set[str]:
     PAYROLL_BATCH_SECONDS of each other (i.e. time span ≤ threshold).
     A payroll system fires all salary debits in a single batch run;
     a smurfing disperser staggers payments to avoid detection.
+
+    Fully vectorised — no Python-level for-loop over groups.
     """
-    excluded: Set[str] = set()
-    for sender, grp in df.groupby("sender_id"):
-        if len(grp) < 2:
-            continue
-        times = grp["timestamp"].sort_values()
-        span = (times.iloc[-1] - times.iloc[0]).total_seconds()
-        if span <= PAYROLL_BATCH_SECONDS:
-            excluded.add(sender)
+    ts_stats = df.groupby("sender_id")["timestamp"].agg(["min", "max", "count"])
+    ts_stats = ts_stats[ts_stats["count"] >= 2]
+    # Span in seconds between first and last outgoing tx per sender
+    ts_stats["span_s"] = (ts_stats["max"] - ts_stats["min"]).dt.total_seconds()
+    excluded = set(ts_stats[ts_stats["span_s"] <= PAYROLL_BATCH_SECONDS].index)
     if excluded:
         log.info("Fan-out payroll exclusion (batch timestamps): %d accounts", len(excluded))
     return excluded

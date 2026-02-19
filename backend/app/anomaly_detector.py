@@ -26,35 +26,33 @@ def detect_amount_anomalies(df: pd.DataFrame) -> Set[str]:
     mean transaction size.
 
     Both sending and receiving sides are checked independently.
+    Fully vectorised — no Python-level groupby for-loops.
     """
     flagged: Set[str] = set()
 
     if df.empty:
         return flagged
 
-    # ── Check senders ─────────────────────────────────────────────────────────
-    for sender, grp in df.groupby("sender_id"):
-        if len(grp) < _MIN_TX_FOR_ANOMALY:
-            continue
-        mean = grp["amount"].mean()
-        std = grp["amount"].std()
-        if std == 0:
-            continue
-        z_scores = ((grp["amount"] - mean) / std).abs()
-        if (z_scores > AMOUNT_ANOMALY_STDDEV).any():
-            flagged.add(sender)
+    for acc_col in ("sender_id", "receiver_id"):
+        # Vectorised per-account stats in one groupby call
+        stats = df.groupby(acc_col)["amount"].agg(
+            mean_amt="mean",
+            std_amt="std",     # pandas default ddof=1
+            count_amt="count",
+        )
+        # Only accounts with enough data and non-zero std
+        stats = stats[(stats["count_amt"] >= _MIN_TX_FOR_ANOMALY) & (stats["std_amt"] > 0)]
 
-    # ── Check receivers ───────────────────────────────────────────────────────
-    for receiver, grp in df.groupby("receiver_id"):
-        if len(grp) < _MIN_TX_FOR_ANOMALY:
+        if stats.empty:
             continue
-        mean = grp["amount"].mean()
-        std = grp["amount"].std()
-        if std == 0:
-            continue
-        z_scores = ((grp["amount"] - mean) / std).abs()
-        if (z_scores > AMOUNT_ANOMALY_STDDEV).any():
-            flagged.add(receiver)
+
+        # Merge stats back onto transactions and compute z-scores in one shot
+        merged = df[[acc_col, "amount"]].merge(
+            stats[["mean_amt", "std_amt"]].reset_index(),
+            on=acc_col,
+        )
+        merged["z"] = (merged["amount"] - merged["mean_amt"]).abs() / merged["std_amt"]
+        flagged.update(merged.loc[merged["z"] > AMOUNT_ANOMALY_STDDEV, acc_col].unique())
 
     log.info("Amount anomaly detection: %d accounts flagged", len(flagged))
     return flagged

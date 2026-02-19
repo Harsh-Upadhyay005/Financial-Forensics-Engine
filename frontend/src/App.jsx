@@ -34,13 +34,13 @@ export default function App() {
             <div className="logo-mark">
               <svg viewBox="0 0 32 32" fill="none" className="logo-svg">
                 <rect x="2" y="2" width="28" height="28" rx="8" stroke="url(#grd)" strokeWidth="2" />
-                <circle cx="11" cy="13" r="3" fill="#818cf8" />
-                <circle cx="21" cy="13" r="3" fill="#f43f5e" />
-                <circle cx="16" cy="22" r="3" fill="#06d6a0" />
-                <line x1="13.5" y1="14.5" x2="18.5" y2="14.5" stroke="#818cf8" strokeWidth="1.2" />
-                <line x1="12" y1="15.5" x2="14.5" y2="20" stroke="#06d6a0" strokeWidth="1.2" />
-                <line x1="20" y1="15.5" x2="17.5" y2="20" stroke="#f43f5e" strokeWidth="1.2" />
-                <defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stopColor="#6366f1"/><stop offset="1" stopColor="#06d6a0"/></linearGradient></defs>
+                <circle cx="11" cy="13" r="3" fill="#fb923c" />
+                <circle cx="21" cy="13" r="3" fill="#ef4444" />
+                <circle cx="16" cy="22" r="3" fill="#fbbf24" />
+                <line x1="13.5" y1="14.5" x2="18.5" y2="14.5" stroke="#fb923c" strokeWidth="1.2" />
+                <line x1="12" y1="15.5" x2="14.5" y2="20" stroke="#fbbf24" strokeWidth="1.2" />
+                <line x1="20" y1="15.5" x2="17.5" y2="20" stroke="#ef4444" strokeWidth="1.2" />
+                <defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stopColor="#f97316"/><stop offset="1" stopColor="#f59e0b"/></linearGradient></defs>
               </svg>
             </div>
             <div className="logo-text">

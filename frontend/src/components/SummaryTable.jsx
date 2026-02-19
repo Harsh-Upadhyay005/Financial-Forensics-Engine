@@ -1,21 +1,21 @@
 import { useState, useMemo } from 'react'
 import './SummaryTable.css'
 
-/* ── Pattern badge config ──────────────────────────────────── */
+/* ── Pattern badge config (Warm Palette) ───────────────────── */
 const PATTERN_LABELS = {
-  cycle_length_3: { label: 'Cycle ×3', color: '#f43f5e' },
-  cycle_length_4: { label: 'Cycle ×4', color: '#fb923c' },
-  cycle_length_5: { label: 'Cycle ×5', color: '#facc15' },
-  fan_in:         { label: 'Fan-in',   color: '#c084fc' },
-  fan_out:        { label: 'Fan-out',  color: '#818cf8' },
-  shell_chain:    { label: 'Shell Chain', color: '#22d3ee' },
-  high_velocity:  { label: 'High Velocity', color: '#fb923c' },
-  multi_ring:     { label: 'Multi-Ring', color: '#f472b6' },
-  cycle:          { label: 'Cycle',     color: '#f43f5e' },
+  cycle_length_3: { label: 'Cycle ×3', color: '#ef4444' },
+  cycle_length_4: { label: 'Cycle ×4', color: '#f87171' },
+  cycle_length_5: { label: 'Cycle ×5', color: '#fbbf24' },
+  fan_in:         { label: 'Fan-in',   color: '#f97316' },
+  fan_out:        { label: 'Fan-out',  color: '#fb923c' },
+  shell_chain:    { label: 'Shell Chain', color: '#fbbf24' },
+  high_velocity:  { label: 'High Velocity', color: '#a3e635' },
+  multi_ring:     { label: 'Multi-Ring', color: '#f43f5e' },
+  cycle:          { label: 'Cycle',     color: '#ef4444' },
 }
 
 function PatternBadge({ pattern }) {
-  const info = PATTERN_LABELS[pattern] || { label: pattern, color: '#6366f1' }
+  const info = PATTERN_LABELS[pattern] || { label: pattern, color: '#f97316' }
   return (
     <span
       className="pattern-badge"

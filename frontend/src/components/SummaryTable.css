@@ -122,9 +122,9 @@
 .data-table tbody tr { animation: fadeInUp 0.35s both; }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tr:hover td { background: var(--surface2); }
-.data-table tr.expanded td { background: rgba(99, 102, 241, 0.05); }
+.data-table tr.expanded td { background: rgba(249, 115, 22, 0.06); }
 
-/* ── Ring pill ──────────────────────────────────────────────── */
+/* ── Ring pill ────────────────────────────────────────────────── */
 .ring-pill {
   background: var(--accent-glow);
   color: var(--accent-light);
@@ -134,7 +134,7 @@
   font-weight: 700;
   font-family: var(--font-mono);
   letter-spacing: 0.02em;
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(249, 115, 22, 0.25);
   white-space: nowrap;
 }
 

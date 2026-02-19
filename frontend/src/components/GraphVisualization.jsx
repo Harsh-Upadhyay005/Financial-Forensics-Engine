@@ -1,417 +1,540 @@
-import { useCallback, useRef, useState, useMemo } from 'react'
-import ForceGraph2D from 'react-force-graph-2d'
+import { useCallback, useRef, useState, useMemo, useEffect } from 'react'
+import CytoscapeComponent from 'react-cytoscapejs'
 import './GraphVisualization.css'
 
-/* ── Pattern → Color mapping ──────────────────────────────── */
-const PATTERN_COLORS = {
-  cycle_length_3: '#f43f5e',
-  cycle_length_4: '#fb7185',
-  cycle_length_5: '#fda4af',
-  fan_in:         '#a78bfa',
-  fan_out:        '#8b5cf6',
-  shell_chain:    '#22d3ee',
-  high_velocity:  '#f59e0b',
-  multi_ring:     '#fbbf24',
+/* ── Pattern → Color mapping (3D/Warm Palette) ──────────────── */
+const NODE_STYLES = {
+  safe:     { color: '#84cc16', label: 'Safe',     shadow: '#65a30d' },
+  cycle:    { color: '#ef4444', label: 'Cycle',    shadow: '#b91c1c' },
+  fan_in:   { color: '#f97316', label: 'Fan-in',   shadow: '#c2410c' },
+  fan_out:  { color: '#fb923c', label: 'Fan-out',  shadow: '#ea580c' },
+  shell:    { color: '#fbbf24', label: 'Shell',    shadow: '#d97706' },
+  velocity: { color: '#a3e635', label: 'Velocity', shadow: '#4d7c0f' },
+  multi:    { color: '#f43f5e', label: 'Multi',    shadow: '#be123c' },
+  default:  { color: '#f59e0b', label: 'Suspicious', shadow: '#b45309' },
 }
 
-const PATTERN_LABELS = {
-  cycle_length_3: 'Cycle (3)',
-  cycle_length_4: 'Cycle (4)',
-  cycle_length_5: 'Cycle (5)',
-  fan_in:         'Fan-in',
-  fan_out:        'Fan-out',
-  shell_chain:    'Shell Chain',
-  high_velocity:  'High Velocity',
-  multi_ring:     'Multi Ring',
-}
-
-/* ── Node styling helpers ─────────────────────────────────── */
-function getNodeColor(node) {
-  if (!node.suspicious) return '#10b981'
+function getNodeStyle(node) {
+  if (!node.suspicious) return NODE_STYLES.safe
   const p = node.detected_patterns || []
-  if (p.some(x => x.startsWith('cycle')))    return '#f43f5e'
-  if (p.includes('fan_in'))                   return '#a78bfa'
-  if (p.includes('fan_out'))                  return '#8b5cf6'
-  if (p.includes('shell_chain'))              return '#22d3ee'
-  if (p.includes('high_velocity'))            return '#f59e0b'
-  return '#fbbf24'
+  if (p.some(x => x.startsWith('cycle'))) return NODE_STYLES.cycle
+  if (p.includes('fan_in')) return NODE_STYLES.fan_in
+  if (p.includes('fan_out')) return NODE_STYLES.fan_out
+  if (p.includes('shell_chain')) return NODE_STYLES.shell
+  if (p.includes('high_velocity')) return NODE_STYLES.velocity
+  if (p.length > 1) return NODE_STYLES.multi
+  return NODE_STYLES.default
 }
 
 function getNodeSize(node) {
-  if (!node.suspicious) return 3.5
+  if (!node.suspicious) return 20 // Smaller safe nodes
   const score = node.suspicion_score || 0
-  return 4 + (score / 100) * 14
+  return 24 + (score / 100) * 20 // 24-44px for suspicious
 }
 
-/* ── Legend items ──────────────────────────────────────────── */
-const LEGEND = [
-  { color: '#10b981',  label: 'Safe' },
-  { color: '#f43f5e',  label: 'Cycle' },
-  { color: '#a78bfa',  label: 'Fan-in' },
-  { color: '#8b5cf6',  label: 'Fan-out' },
-  { color: '#22d3ee',  label: 'Shell' },
-  { color: '#f59e0b',  label: 'Velocity' },
+/* ── Cytoscape Stylesheet (3D Effects) ──────────────────────── */
+const cyStylesheet = [
+  {
+    selector: 'node',
+    style: {
+      'background-color': 'data(color)',
+      'width': 'data(size)',
+      'height': 'data(size)',
+      'label': 'data(label)',
+      'color': '#cbd5e1', // text-muted
+      'text-valign': 'bottom',
+      'text-halign': 'center',
+      'font-size': '10px',
+      'font-family': 'Inter, sans-serif',
+      'font-weight': 500,
+      'text-margin-y': 6,
+      'text-background-color': '#18181b', // bg-dark
+      'text-background-opacity': 0.8,
+      'text-background-padding': '2px',
+      'text-background-shape': 'roundrectangle',
+      
+      // 3D Rim Light & Shadow
+      'border-width': 2,
+      'border-color': 'rgba(255,255,255,0.4)', // Inner rim light
+      'border-opacity': 0.5,
+      'shadow-blur': 12,
+      'shadow-color': 'data(shadowColor)',
+      'shadow-opacity': 0.6,
+      'shadow-offset-y': 4,
+      
+      'z-index': 10,
+      'transition-property': 'background-color, border-width, border-color, shadow-blur',
+      'transition-duration': '0.3s',
+    }
+  },
+  {
+    selector: 'node.safe',
+    style: {
+      'border-width': 1,
+      'border-color': 'rgba(255,255,255,0.2)',
+      'shadow-blur': 0,
+    }
+  },
+  {
+    selector: ':selected',
+    style: {
+      'border-width': 4,
+      'border-color': '#ffffff',
+      'shadow-blur': 25,
+      'shadow-opacity': 0.8,
+      'shadow-offset-y': 6,
+      'z-index': 999,
+    }
+  },
+  {
+    selector: '.highlighted',
+    style: {
+      'border-width': 3,
+      'border-color': '#ffffff',
+      'shadow-blur': 20,
+      'shadow-color': '#f97316',
+      'z-index': 99,
+    }
+  },
+  {
+    selector: '.dimmed',
+    style: {
+      'opacity': 0.15,
+      'shadow-opacity': 0,
+      'z-index': 1,
+    }
+  },
+  {
+    selector: 'edge',
+    style: {
+      'width': 1.5,
+      'line-color': '#52525b', // zinc-600
+      'opacity': 0.3,
+      'curve-style': 'bezier',
+      'target-arrow-shape': 'triangle',
+      'target-arrow-color': '#52525b',
+    }
+  },
+  {
+    selector: 'edge.suspicious-edge',
+    style: {
+      'line-color': '#ea580c', // orange-600
+      'target-arrow-color': '#ea580c',
+      'opacity': 0.6,
+    }
+  },
+  {
+    selector: 'edge:selected',
+    style: {
+      'width': 3,
+      'line-color': '#fb923c', // orange-400
+      'target-arrow-color': '#fb923c',
+      'opacity': 1,
+      'z-index': 99,
+    }
+  },
+  {
+    selector: 'edge.highlighted',
+    style: {
+      'width': 2.5,
+      'line-color': '#f97316',
+      'target-arrow-color': '#f97316',
+      'opacity': 0.9,
+      'z-index': 90,
+    }
+  }
 ]
 
+/* ── Layout Options ────────────────────────────────────────── */
+const LAYOUT_OPTIONS = {
+  name: 'cose',
+  animate: true,
+  animationDuration: 800,
+  randomize: false,
+  componentSpacing: 100,
+  nodeRepulsion: 12000,
+  nodeOverlap: 20,
+  idealEdgeLength: 80,
+  edgeElasticity: 200,
+  nestingFactor: 1.2,
+  gravity: 0.25,
+  numIter: 1000,
+  initialTemp: 200,
+  coolingFactor: 0.95,
+  minTemp: 1.0,
+  fit: true,
+  padding: 60,
+}
+
 export default function GraphVisualization({ graphData, rings }) {
-  const fgRef = useRef()
-  const [selected, setSelected] = useState(null)
-  const [hovered, setHovered] = useState(null)
-  const [filter, setFilter] = useState('all') // all | suspicious | safe
-  const [highlightRing, setHighlightRing] = useState(null)
+  const cyRef = useRef(null)
+  const [selectedNode, setSelectedNode] = useState(null)
+  const [hoveredNode, setHoveredNode] = useState(null)
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
+  const [filter, setFilter] = useState('all')
+  const [activeRingId, setActiveRingId] = useState(null)
+  const [layoutName, setLayoutName] = useState('cose')
 
-  // Build ring member lookup
+  // Ring Highlight Logic
   const ringMembers = useMemo(() => {
-    if (!rings) return new Set()
-    if (!highlightRing) return new Set()
-    const ring = rings.find(r => r.ring_id === highlightRing)
-    return ring ? new Set(ring.member_accounts) : new Set()
-  }, [rings, highlightRing])
+    if (!rings || !activeRingId) return new Set()
+    const r = rings.find(x => x.ring_id === activeRingId)
+    return r ? new Set(r.member_accounts) : new Set()
+  }, [rings, activeRingId])
 
-  // Filter visible nodes
-  const processedData = useMemo(() => {
-    if (!graphData?.nodes?.length) return { nodes: [], links: [] }
+  // Process Elements
+  const elements = useMemo(() => {
+    if (!graphData?.nodes) return []
+    let nodes = graphData.nodes
 
-    let nodes = graphData.nodes.map(n => ({ ...n }))
+    // Filter Logic
     if (filter === 'suspicious') nodes = nodes.filter(n => n.suspicious)
     else if (filter === 'safe') nodes = nodes.filter(n => !n.suspicious)
 
-    const visibleIds = new Set(nodes.map(n => n.id))
-    const links = graphData.edges
+    // Map to Cytoscape format
+    const nodeEles = nodes.map(n => {
+      const style = getNodeStyle(n)
+      return {
+        data: {
+          id: n.id,
+          label: n.id.slice(0,4) + '...', // Short label
+          fullLabel: n.id,
+          suspicious: n.suspicious,
+          score: n.suspicion_score,
+          color: style.color,
+          shadowColor: style.shadow,
+          size: getNodeSize(n),
+          ...n // pass all props
+        },
+        classes: n.suspicious ? 'suspicious' : 'safe'
+      }
+    })
+
+    const visibleIds = new Set(nodeEles.map(x => x.data.id))
+    const edgeEles = graphData.edges
       .filter(e => visibleIds.has(e.source) && visibleIds.has(e.target))
-      .map(e => ({
-        source: e.source,
-        target: e.target,
-        total_amount: e.total_amount,
-        tx_count: e.tx_count,
+      .map((e, idx) => ({
+        data: {
+          id: `e${idx}`,
+          source: e.source,
+          target: e.target,
+          ...e
+        },
+        classes: (visibleIds.has(e.source) && graphData.nodes.find(n => n.id === e.source)?.suspicious) 
+                 || (visibleIds.has(e.target) && graphData.nodes.find(n => n.id === e.target)?.suspicious)
+                 ? 'suspicious-edge' : ''
       }))
 
-    return { nodes, links }
+    return [...nodeEles, ...edgeEles]
   }, [graphData, filter])
 
-  const handleNodeClick = useCallback((node) => {
-    setSelected(node)
-    if (fgRef.current) {
-      fgRef.current.centerAt(node.x, node.y, 600)
-      fgRef.current.zoom(4, 600)
-    }
+  // Visual Effect: Highlight Ring
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    
+    cy.batch(() => {
+      cy.elements().removeClass('highlighted dimmed')
+      if (activeRingId && ringMembers.size > 0) {
+        cy.nodes().forEach(n => {
+          if (ringMembers.has(n.id())) n.addClass('highlighted')
+          else n.addClass('dimmed')
+        })
+        cy.edges().forEach(e => {
+          if (ringMembers.has(e.source().id()) && ringMembers.has(e.target().id())) {
+            e.addClass('highlighted')
+          } else {
+            e.addClass('dimmed')
+          }
+        })
+      }
+    })
+  }, [activeRingId, ringMembers, elements])
+
+  // Handlers
+  const handleCyInit = useCallback((cy) => {
+    cyRef.current = cy
+    cy.on('tap', 'node', (evt) => {
+      setSelectedNode(evt.target.data())
+    })
+    cy.on('tap', (evt) => {
+      if (evt.target === cy) setSelectedNode(null)
+    })
+    cy.on('mouseover', 'node', (evt) => {
+      const node = evt.target
+      setHoveredNode(node.data())
+      setTooltipPos({ x: evt.originalEvent.clientX, y: evt.originalEvent.clientY })
+      document.body.style.cursor = 'pointer'
+    })
+    cy.on('mouseout', 'node', () => {
+      setHoveredNode(null)
+      document.body.style.cursor = 'default'
+    })
   }, [])
 
-  const handleNodeHover = useCallback((node) => {
-    setHovered(node)
-    document.body.style.cursor = node ? 'pointer' : 'default'
-  }, [])
+  const runLayout = () => {
+    cyRef.current?.layout({ ...LAYOUT_OPTIONS, name: layoutName }).run()
+  }
 
-  const handleBgClick = useCallback(() => setSelected(null), [])
+  useEffect(() => {
+    runLayout()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutName, elements]) // Re-run when layout or data changes
 
-  const paintNode = useCallback((node, ctx, globalScale) => {
-    const size = getNodeSize(node)
-    const color = getNodeColor(node)
-    const isHighlighted = hovered?.id === node.id || selected?.id === node.id
-    const isRingMember  = highlightRing && ringMembers.has(node.id)
-    const isDimmed      = highlightRing && !isRingMember
-
-    ctx.save()
-
-    if (isDimmed) ctx.globalAlpha = 0.12
-
-    // Glow 
-    if (node.suspicious && !isDimmed) {
-      ctx.shadowColor = color
-      ctx.shadowBlur  = isHighlighted ? 24 : 12
-    }
-
-    // Ring highlight outer ring
-    if (isRingMember) {
-      ctx.beginPath()
-      ctx.arc(node.x, node.y, size + 4, 0, 2 * Math.PI)
-      ctx.strokeStyle = '#fff'
-      ctx.lineWidth = 0.6
-      ctx.setLineDash([2, 2])
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-    // Node circle
-    ctx.beginPath()
-    ctx.arc(node.x, node.y, size, 0, 2 * Math.PI)
-    ctx.fillStyle = color
-    ctx.fill()
-
-    // Border for highlighted
-    if (isHighlighted && !isDimmed) {
-      ctx.strokeStyle = '#fff'
-      ctx.lineWidth = 1.8
-      ctx.stroke()
-    }
-
-    ctx.shadowBlur = 0
-
-    // Label
-    if ((globalScale > 1.8 || node.suspicious || isRingMember) && !isDimmed) {
-      const label = node.label || node.id
-      const fontSize = Math.max(11 / globalScale, 5)
-      ctx.font = `500 ${fontSize}px Inter, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'top'
-      ctx.fillStyle = isRingMember ? '#fff' : 'rgba(241, 245, 249, 0.8)'
-      ctx.fillText(label, node.x, node.y + size + 3)
-    }
-
-    ctx.restore()
-  }, [hovered, selected, highlightRing, ringMembers])
-
-  // Link color
-  const linkColor = useCallback((link) => {
-    if (!highlightRing) return 'rgba(148,163,184,0.12)'
-    const s = typeof link.source === 'object' ? link.source.id : link.source
-    const t = typeof link.target === 'object' ? link.target.id : link.target
-    if (ringMembers.has(s) && ringMembers.has(t)) return 'rgba(255,255,255,0.4)'
-    return 'rgba(148,163,184,0.04)'
-  }, [highlightRing, ringMembers])
+  // Stats
+  const stats = useMemo(() => {
+    const sCount = elements.filter(x => x.data?.suspicious).length
+    const total = elements.filter(x => x.data?.source === undefined).length // nodes only
+    return { total, suspicious: sCount, safe: total - sCount }
+  }, [elements])
 
   if (!graphData?.nodes?.length) {
     return (
-      <div className="graph-empty">
-        <div className="empty-icon">◉</div>
-        <p>No graph data available</p>
+      <div className="graph-dashboard empty">
+        <div className="center-msg">No Data to Visualize</div>
       </div>
     )
   }
 
-  const suspiciousCount = graphData.nodes.filter(n => n.suspicious).length
-  const safeCount = graphData.nodes.length - suspiciousCount
-
   return (
-    <div className="graph-container">
-      {/* ── Toolbar ───────────────────────────────────────── */}
-      <div className="graph-toolbar">
-        <div className="graph-toolbar-left">
-          {/* Legend */}
-          <div className="legend-group">
-            {LEGEND.map(l => (
-              <div key={l.label} className="legend-item">
-                <span className="legend-dot" style={{ background: l.color }} />
-                <span>{l.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+    <div className="graph-dashboard">
+      {/* ── Header Toolbar ────────────────────────────── */}
+      <div className="graph-header">
+        <div className="graph-title">Network Analysis</div>
+        
+        <div className="graph-controls-group">
+          {/* Layout Select */}
+          <select 
+            className="graph-select" 
+            value={layoutName}
+            onChange={(e) => setLayoutName(e.target.value)}
+          >
+            <option value="cose">Force Directed</option>
+            <option value="circle">Circle</option>
+            <option value="grid">Grid</option>
+            <option value="breadthfirst">Hierarchical</option>
+          </select>
 
-        <div className="graph-toolbar-right">
-          {/* Ring filter */}
-          {rings && rings.length > 0 && (
-            <select
+           {/* Ring Select */}
+           {rings?.length > 0 && (
+            <select 
               className="graph-select"
-              value={highlightRing || ''}
-              onChange={e => setHighlightRing(e.target.value || null)}
+              value={activeRingId || ''}
+              onChange={(e) => setActiveRingId(e.target.value || null)}
             >
-              <option value="">All Rings</option>
+              <option value="">Select Ring...</option>
               {rings.map(r => (
                 <option key={r.ring_id} value={r.ring_id}>
-                  {r.ring_id} — {r.pattern_type} ({r.member_accounts.length})
+                  {r.ring_id} ({r.member_accounts.length} nodes)
                 </option>
               ))}
             </select>
           )}
 
-          {/* Node filter */}
+          {/* Filter Pills */}
           <div className="filter-pills">
-            {[
-              { key: 'all', label: `All (${graphData.nodes.length})` },
-              { key: 'suspicious', label: `Flagged (${suspiciousCount})` },
-              { key: 'safe', label: `Safe (${safeCount})` },
-            ].map(f => (
-              <button
-                key={f.key}
-                className={`filter-pill ${filter === f.key ? 'active' : ''}`}
-                onClick={() => setFilter(f.key)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Zoom controls */}
-          <div className="zoom-controls">
-            <button className="zoom-btn" onClick={() => fgRef.current?.zoom(fgRef.current.zoom() * 1.4, 300)} title="Zoom in">+</button>
-            <button className="zoom-btn" onClick={() => fgRef.current?.zoom(fgRef.current.zoom() * 0.7, 300)} title="Zoom out">−</button>
-            <button className="zoom-btn" onClick={() => fgRef.current?.zoomToFit(400, 40)} title="Fit view">⊞</button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Graph Canvas ──────────────────────────────────── */}
-      <div className="graph-canvas">
-        <ForceGraph2D
-          ref={fgRef}
-          graphData={processedData}
-          nodeCanvasObject={paintNode}
-          nodeCanvasObjectMode={() => 'replace'}
-          onNodeClick={handleNodeClick}
-          onNodeHover={handleNodeHover}
-          onBackgroundClick={handleBgClick}
-          linkColor={linkColor}
-          linkWidth={0.6}
-          linkDirectionalArrowLength={4}
-          linkDirectionalArrowRelPos={1}
-          linkDirectionalParticles={1}
-          linkDirectionalParticleSpeed={0.003}
-          linkDirectionalParticleWidth={1.5}
-          linkDirectionalParticleColor={() => 'rgba(99,102,241,0.5)'}
-          backgroundColor="transparent"
-          width={undefined}
-          height={580}
-          cooldownTicks={100}
-          d3AlphaDecay={0.02}
-          d3VelocityDecay={0.3}
-        />
-      </div>
-
-      {/* ── Hover tooltip ─────────────────────────────────── */}
-      {hovered && !selected && (
-        <div className="hover-tooltip">
-          <span className="tooltip-dot" style={{ background: getNodeColor(hovered) }} />
-          <span className="tooltip-id">{hovered.id}</span>
-          {hovered.suspicious && (
-            <span className="tooltip-score">Score: {hovered.suspicion_score}</span>
-          )}
-        </div>
-      )}
-
-      {/* ── Node Detail Panel ─────────────────────────────── */}
-      {selected && (
-        <div className="node-panel">
-          <div className="node-panel-header">
-            <div className="panel-title-row">
-              <span className="panel-dot" style={{ background: getNodeColor(selected) }} />
-              <h3>{selected.id}</h3>
-            </div>
-            <button className="close-btn" onClick={() => setSelected(null)}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <button 
+              className={`filter-pill ${filter === 'all' ? 'active' : ''}`}
+              onClick={() => setFilter('all')}
+            >
+              All ({stats.total})
+            </button>
+            <button 
+              className={`filter-pill ${filter === 'suspicious' ? 'active' : ''}`}
+              onClick={() => setFilter('suspicious')}
+            >
+              Suspects ({stats.suspicious})
             </button>
           </div>
+        </div>
+      </div>
 
-          {selected.suspicious && (
-            <div className="panel-score-bar">
-              <div className="score-track">
-                <div
-                  className="score-fill"
-                  style={{
-                    width: `${selected.suspicion_score}%`,
-                    background: selected.suspicion_score >= 70 ? 'var(--danger)' :
-                                selected.suspicion_score >= 40 ? 'var(--warning)' : 'var(--safe)',
-                  }}
-                />
-              </div>
-              <span className="score-label">{selected.suspicion_score}/100</span>
+      {/* ── Main Content Area ─────────────────────────── */}
+      <div className="graph-main-content">
+        
+        {/* Left: Graph Canvas */}
+        <div className="graph-panel">
+          <div className="cytoscape-container">
+            <CytoscapeComponent
+              elements={elements}
+              stylesheet={cyStylesheet}
+              layout={LAYOUT_OPTIONS}
+              cy={handleCyInit}
+              style={{ width: '100%', height: '100%' }}
+              minZoom={0.2}
+              maxZoom={5}
+            />
+          </div>
+          
+          <div className="zoom-controls-floating">
+            <button className="zoom-btn" onClick={() => cyRef.current?.animate({ zoom: cyRef.current.zoom() * 1.3, duration: 200 })} title="Zoom In">+</button>
+            <button className="zoom-btn" onClick={() => cyRef.current?.animate({ zoom: cyRef.current.zoom() * 0.7, duration: 200 })} title="Zoom Out">−</button>
+            <button className="zoom-btn" onClick={() => cyRef.current?.fit(undefined, 50)} title="Fit">⊞</button>
+            <button className="zoom-btn" onClick={runLayout} title="Redraw">↻</button>
+          </div>
+
+          {/* Tooltip Overlay */}
+          {hoveredNode && !selectedNode && (
+            <div 
+              className="hover-tooltip"
+              style={{ top: tooltipPos.y - 10, left: tooltipPos.x }}
+            >
+              <div 
+                className="legend-dot" 
+                style={{ background: hoveredNode.color, boxShadow: `0 0 8px ${hoveredNode.color}` }}
+              />
+              <span className="tooltip-id">{hoveredNode.id}</span>
+              {hoveredNode.suspicious && (
+                <span className="tooltip-score text-danger">({hoveredNode.score})</span>
+              )}
             </div>
           )}
+        </div>
 
-          <div className="node-panel-body">
-            <div className="meta-grid">
-              <div className="meta-item">
-                <span className="meta-label">Transactions</span>
-                <span className="meta-value">{selected.tx_count}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-label">Total Sent</span>
-                <span className="meta-value">${Number(selected.total_sent || 0).toLocaleString()}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-label">Total Received</span>
-                <span className="meta-value">${Number(selected.total_received || 0).toLocaleString()}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-label">Net Flow</span>
-                <span className={`meta-value ${(selected.net_flow || 0) >= 0 ? 'positive' : 'negative'}`}>
-                  {(selected.net_flow || 0) >= 0 ? '+' : ''}${Number(selected.net_flow || 0).toLocaleString()}
-                </span>
-              </div>
-              {selected.sent_count !== undefined && (
-                <div className="meta-item">
-                  <span className="meta-label">Sent Count</span>
-                  <span className="meta-value">{selected.sent_count}</span>
-                </div>
+        {/* Right: Sidebar Details */}
+        <div className="details-sidebar">
+          
+          {/* Top Card: Selected Node Details OR Placeholder */}
+          <div className="details-card flex-grow">
+            <div className="card-header">
+              <span>{selectedNode ? 'Node Details' : 'Selection'}</span>
+              {selectedNode && (
+                <button 
+                  className="close-btn-simple" 
+                  onClick={() => setSelectedNode(null)}
+                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}
+                >
+                  ✕
+                </button>
               )}
-              {selected.received_count !== undefined && (
-                <div className="meta-item">
-                  <span className="meta-label">Recv Count</span>
-                  <span className="meta-value">{selected.received_count}</span>
-                </div>
-              )}
-              {selected.first_tx && (
-                <div className="meta-item full">
-                  <span className="meta-label">First Transaction</span>
-                  <span className="meta-value mono">{selected.first_tx}</span>
-                </div>
-              )}
-              {selected.last_tx && (
-                <div className="meta-item full">
-                  <span className="meta-label">Last Transaction</span>
-                  <span className="meta-value mono">{selected.last_tx}</span>
+            </div>
+            
+            <div className="card-body">
+              {selectedNode ? (
+                <>
+                  <div className="node-id-row">
+                    <div 
+                      className="node-status-dot" 
+                      style={{ 
+                        background: selectedNode.color, 
+                        color: selectedNode.color /* used for shadow inheritance */
+                      }} 
+                    />
+                    <div className="node-id-text" title={selectedNode.id}>
+                      {selectedNode.id.length > 20 ? selectedNode.id.slice(0, 8) + '...' + selectedNode.id.slice(-8) : selectedNode.id}
+                    </div>
+                  </div>
+
+                  {selectedNode.suspicious && (
+                    <div className="score-section">
+                      <div className="score-label-row">
+                        <span>Risk Score</span>
+                        <span style={{ color: selectedNode.score > 70 ? 'var(--danger)' : 'var(--warning)' }}>
+                          {selectedNode.score}/100
+                        </span>
+                      </div>
+                      <div className="score-track">
+                        <div 
+                          className="score-fill"
+                          style={{ 
+                            width: `${selectedNode.score}%`,
+                            background: selectedNode.score > 70 ? 'var(--danger)' : 'var(--warning)'
+                          }} 
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="meta-grid">
+                    <div className="meta-row">
+                      <span className="meta-key">Transactions</span>
+                      <span className="meta-val">{selectedNode.tx_count}</span>
+                    </div>
+                    <div className="meta-row">
+                      <span className="meta-key">Sent</span>
+                      <span className="meta-val">${Number(selectedNode.total_sent).toLocaleString()}</span>
+                    </div>
+                    <div className="meta-row">
+                      <span className="meta-key">Received</span>
+                      <span className="meta-val">${Number(selectedNode.total_received).toLocaleString()}</span>
+                    </div>
+                    <div className="meta-row">
+                      <span className="meta-key">Net Flow</span>
+                      <span className={`meta-val ${selectedNode.net_flow >= 0 ? 'positive' : 'negative'}`}>
+                        {selectedNode.net_flow >= 0 ? '+' : ''}${Number(selectedNode.net_flow).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {selectedNode.ring_ids?.length > 0 && (
+                    <div className="tags-section">
+                      <span className="tags-label">Member of Rings</span>
+                      <div className="tags-list">
+                        {selectedNode.ring_ids.map(rid => (
+                          <span 
+                            key={rid} 
+                            className={`tag-chip clickable ring ${activeRingId === rid ? 'active-ring' : ''}`}
+                            onClick={() => setActiveRingId(activeRingId === rid ? null : rid)}
+                          >
+                            {rid}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {selectedNode.detected_patterns?.length > 0 && (
+                    <div className="tags-section">
+                      <span className="tags-label">Patterns</span>
+                      <div className="tags-list">
+                        {selectedNode.detected_patterns.map(p => {
+                          const style = Object.values(NODE_STYLES).find(s => s.label.toLowerCase() === p.split('_')[0]) || NODE_STYLES.default;
+                          return (
+                            <span 
+                              key={p} 
+                              className="tag-chip"
+                              style={{ 
+                                background: style.color + '22',
+                                color: style.color,
+                                border: '1px solid ' + style.color + '44'
+                              }}
+                            >
+                              {p.replace(/_/g, ' ')}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                </>
+              ) : (
+                <div className="sidebar-empty">
+                  <span>Select a node to view detailed transaction analysis</span>
                 </div>
               )}
             </div>
-
-            {/* Suspicious details */}
-            {selected.suspicious && (
-              <>
-                {selected.ring_ids?.length > 0 && (
-                  <div className="panel-section">
-                    <span className="meta-label">Ring Membership</span>
-                    <div className="ring-tags">
-                      {selected.ring_ids.map(rid => (
-                        <button
-                          key={rid}
-                          className={`ring-tag ${highlightRing === rid ? 'active' : ''}`}
-                          onClick={() => setHighlightRing(highlightRing === rid ? null : rid)}
-                        >
-                          {rid}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {selected.detected_patterns?.length > 0 && (
-                  <div className="panel-section">
-                    <span className="meta-label">Detected Patterns</span>
-                    <div className="pattern-tags">
-                      {selected.detected_patterns.map(p => (
-                        <span
-                          key={p}
-                          className="pattern-tag"
-                          style={{
-                            background: (PATTERN_COLORS[p] || '#6366f1') + '18',
-                            color: PATTERN_COLORS[p] || '#6366f1',
-                            border: `1px solid ${(PATTERN_COLORS[p] || '#6366f1')}33`,
-                          }}
-                        >
-                          {PATTERN_LABELS[p] || p}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
           </div>
-        </div>
-      )}
 
-      {/* ── Stats footer ──────────────────────────────────── */}
-      <div className="graph-footer">
-        <span>{processedData.nodes.length} nodes</span>
-        <span className="graph-footer-sep">•</span>
-        <span>{processedData.links.length} edges</span>
-        <span className="graph-footer-sep">•</span>
-        <span className="text-danger">{suspiciousCount} flagged</span>
-        {highlightRing && (
-          <>
-            <span className="graph-footer-sep">•</span>
-            <span className="text-accent">Highlighting: {highlightRing}</span>
-          </>
-        )}
+          {/* Bottom Card: Legend */}
+          <div className="details-card">
+            <div className="card-header">Legend</div>
+            <div className="card-body">
+              <div className="legend-grid">
+                {Object.values(NODE_STYLES).map((s, i) => (
+                  <div key={i} className="legend-item">
+                    <span 
+                      className="legend-dot" 
+                      style={{ background: s.color, boxShadow: `0 0 6px ${s.shadow}` }} 
+                    />
+                    <span>{s.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   )

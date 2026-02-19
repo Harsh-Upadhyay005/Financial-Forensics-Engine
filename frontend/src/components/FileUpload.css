@@ -35,8 +35,8 @@
 }
 
 .dropzone:hover {
-  border-color: rgba(99, 102, 241, 0.35);
-  background: rgba(14, 18, 32, 0.95);
+  border-color: rgba(249, 115, 22, 0.45);
+  background: rgba(28, 25, 23, 0.95);
   transform: translateY(-1px);
   box-shadow: var(--shadow-glow);
 }
@@ -44,9 +44,9 @@
 
 .dropzone.dragging {
   border-color: var(--accent);
-  background: rgba(99, 102, 241, 0.06);
+  background: rgba(249, 115, 22, 0.06);
   transform: scale(1.01);
-  box-shadow: 0 0 60px rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 60px rgba(249, 115, 22, 0.15);
 }
 .dropzone.dragging::before { opacity: 1; }
 
@@ -66,8 +66,8 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-glow), rgba(6, 214, 160, 0.08));
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: linear-gradient(135deg, var(--accent-glow), rgba(245, 158, 11, 0.1));
+  border: 1px solid rgba(249, 115, 22, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -76,10 +76,10 @@
 }
 
 .dropzone:hover .upload-icon-ring {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(6, 214, 160, 0.12));
-  border-color: rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.22), rgba(245, 158, 11, 0.14));
+  border-color: rgba(249, 115, 22, 0.45);
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 8px 28px rgba(249, 115, 22, 0.18);
 }
 
 /* ── Text ───────────────────────────────────────────────────── */
@@ -187,31 +187,100 @@
   font-size: 0.72rem;
 }
 
-/* ── Sample Button ──────────────────────────────────────────── */
+/* ── Meta Actions & Schema ──────────────────────────────────── */
+.upload-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.meta-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Sample Button (Primary) */
 .btn-sample {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--surface);
+  background: var(--surface2);
   border: 1px solid var(--border);
-  color: var(--text-secondary);
+  color: var(--text);
   padding: 10px 18px;
   border-radius: var(--radius);
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 500;
   font-family: var(--font-sans);
-  transition: all 0.25s;
-  white-space: nowrap;
+  transition: all 0.2s;
   flex-shrink: 0;
 }
-
 .btn-sample:hover {
-  color: var(--text);
-  border-color: var(--accent2);
-  background: var(--accent2-glow);
+  background: var(--surface3);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.15);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(6, 214, 160, 0.1);
+}
+
+/* Schema Toggle (Secondary) */
+.btn-schema-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid transparent; /* Invisible border for layout stability */
+  color: var(--text-muted);
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.btn-schema-toggle:hover {
+  color: var(--text-secondary);
+  background: var(--surface);
+}
+.btn-schema-toggle.active {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* Schema Card Animation */
+.schema-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-top: 4px;
+  animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.schema-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1px;
+  background: var(--border); /* for grid gap effect */
+  border-top: 1px solid var(--border);
+}
+
+.schema-col {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg); /* sit on top of gap color */
+  font-size: 0.8rem;
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */

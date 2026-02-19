@@ -1,22 +1,25 @@
 """
 formatter.py – Produce the final API response in exact spec format.
 
-JSON contract (spec-compliant + enrichments)
-----------------------------------------------
+JSON contract (evaluation-spec)
+---------------------------------
 {
   "suspicious_accounts": [{account_id, suspicion_score, detected_patterns, ring_id,
-                           risk_explanation}],
-  "fraud_rings":         [{ring_id, member_accounts, pattern_type, risk_score,
-                           confidence}],
-  "summary":            {total_accounts_analyzed, suspicious_accounts_flagged,
-                          fraud_rings_detected, processing_time_seconds,
-                          network_statistics: {graph_density, connected_components,
-                                               avg_clustering, avg_degree}},
-  "graph":              {nodes: [...], edges: [...]},
-  "parse_stats":         {...}   // extra diagnostic info (optional)
+                            risk_explanation}],
+  "fraud_rings":          [{ring_id, member_accounts, pattern_type, risk_score}],
+  "summary":             {total_accounts_analyzed, suspicious_accounts_flagged,
+                           fraud_rings_detected, processing_time_seconds},
 }
 
+When ?detail=true is passed to the /analyze endpoint the response also includes:
+  "graph":       {nodes: [...], edges: [...]}
+  "parse_stats": {...}
+
+Fields NOT in the evaluation spec (confidence, network_statistics) are omitted
+from the default response to keep the schema compliant.
+
 All scores rounded to 1 decimal place. suspicious_accounts sorted descending.
+Only accounts with suspicion_score >= MIN_SUSPICION_SCORE appear in the output.
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ from typing import Any, Dict, List
 
 import networkx as nx
 
-from .config import RING_RISK
+from .config import RING_RISK, MIN_SUSPICION_SCORE
 
 log = logging.getLogger(__name__)
 
@@ -197,6 +200,7 @@ def format_output(
     processing_time: float,
     total_accounts: int,
     parse_stats: dict | None = None,
+    detail: bool = False,
 ) -> Dict[str, Any]:
     """
     Build the complete API response.
@@ -209,8 +213,10 @@ def format_output(
     processing_time : elapsed wall-clock seconds
     total_accounts  : unique account count from the raw CSV
     parse_stats     : optional parse diagnostic info
+    detail          : when True, include ``graph`` and ``parse_stats`` in the
+                      response (used by the frontend, omitted for evaluation)
     """
-    # 1. Fraud rings (with confidence)
+    # 1. Fraud rings (no confidence field — not in evaluation spec)
     fraud_rings: List[Dict] = []
     for ring in rings:
         fraud_rings.append({
@@ -218,14 +224,14 @@ def format_output(
             "member_accounts": ring["members"],
             "pattern_type":    ring["pattern"],
             "risk_score":      _risk_score(ring),
-            "confidence":      _confidence_score(ring),
         })
     fraud_rings.sort(key=lambda r: r["risk_score"], reverse=True)
 
     # 2. Suspicious accounts (with risk_explanation)
+    # Only include accounts that clear the minimum suspicion threshold.
     suspicious_accounts: List[Dict] = []
     for acc_id, d in account_scores.items():
-        if d["score"] <= 0:
+        if d["score"] < MIN_SUSPICION_SCORE:
             continue
         ring_ids = d.get("ring_ids", [])
         primary_ring = ring_ids[0] if ring_ids else "UNASSIGNED"
@@ -238,74 +244,74 @@ def format_output(
         })
     suspicious_accounts.sort(key=lambda x: x["suspicion_score"], reverse=True)
 
-    # 3. Graph payload (with community_id and temporal_profile)
+    # 3. Graph payload (with community_id and temporal_profile) — detail mode only
     suspicious_ids = {a["account_id"] for a in suspicious_accounts}
-    large_graph = G.number_of_nodes() > _GRAPH_PAYLOAD_NODE_CAP
-    community_map = _compute_community_ids(G)
+    if detail:
+        large_graph = G.number_of_nodes() > _GRAPH_PAYLOAD_NODE_CAP
+        community_map = _compute_community_ids(G)
 
-    nodes: List[Dict] = []
-    for node, attrs in G.nodes(data=True):
-        nd: Dict[str, Any] = {
-            "id":             node,
-            "label":          node,
-            "suspicious":     node in suspicious_ids,
-            "tx_count":       attrs.get("tx_count", 0),
-            "total_sent":     attrs.get("total_sent", 0.0),
-            "total_received": attrs.get("total_received", 0.0),
-            "net_flow":       attrs.get("net_flow", 0.0),
-            "sent_count":     attrs.get("sent_count", 0),
-            "received_count": attrs.get("received_count", 0),
-            "first_tx":       attrs.get("first_tx", ""),
-            "last_tx":        attrs.get("last_tx", ""),
-            "community_id":   community_map.get(node),
-        }
-        if node in suspicious_ids:
-            acc_info = account_scores.get(node, {})
-            nd["suspicion_score"]   = acc_info.get("score", 0.0)
-            nd["detected_patterns"] = acc_info.get("patterns", [])
-            nd["ring_id"]           = (acc_info.get("ring_ids") or [""])[0]
-            nd["ring_ids"]          = acc_info.get("ring_ids", [])
-            nd["risk_explanation"]  = acc_info.get("risk_explanation", "")
+        nodes: List[Dict] = []
+        for node, attrs in G.nodes(data=True):
+            nd: Dict[str, Any] = {
+                "id":             node,
+                "label":          node,
+                "suspicious":     node in suspicious_ids,
+                "tx_count":       attrs.get("tx_count", 0),
+                "total_sent":     attrs.get("total_sent", 0.0),
+                "total_received": attrs.get("total_received", 0.0),
+                "net_flow":       attrs.get("net_flow", 0.0),
+                "sent_count":     attrs.get("sent_count", 0),
+                "received_count": attrs.get("received_count", 0),
+                "first_tx":       attrs.get("first_tx", ""),
+                "last_tx":        attrs.get("last_tx", ""),
+                "community_id":   community_map.get(node),
+            }
+            if node in suspicious_ids:
+                acc_info = account_scores.get(node, {})
+                nd["suspicion_score"]   = acc_info.get("score", 0.0)
+                nd["detected_patterns"] = acc_info.get("patterns", [])
+                nd["ring_id"]           = (acc_info.get("ring_ids") or [""])[0]
+                nd["ring_ids"]          = acc_info.get("ring_ids", [])
+                nd["risk_explanation"]  = acc_info.get("risk_explanation", "")
 
-            # Add temporal profile for suspicious nodes
-            tp = _temporal_profile(G, node)
-            if tp:
-                nd["temporal_profile"] = tp
-        nodes.append(nd)
+                # Add temporal profile for suspicious nodes
+                tp = _temporal_profile(G, node)
+                if tp:
+                    nd["temporal_profile"] = tp
+            nodes.append(nd)
 
-    edges: List[Dict] = []
-    for u, v, attrs in G.edges(data=True):
-        ed: Dict[str, Any] = {
-            "source":       u,
-            "target":       v,
-            "total_amount": attrs.get("total_amount", 0.0),
-            "avg_amount":   attrs.get("avg_amount", 0.0),
-            "tx_count":     attrs.get("tx_count", 0),
-            "first_tx":     attrs.get("first_tx", ""),
-            "last_tx":      attrs.get("last_tx", ""),
-        }
-        if not large_graph:
-            ed["transactions"] = attrs.get("transactions", [])
-        edges.append(ed)
+        edges: List[Dict] = []
+        for u, v, attrs in G.edges(data=True):
+            ed: Dict[str, Any] = {
+                "source":       u,
+                "target":       v,
+                "total_amount": attrs.get("total_amount", 0.0),
+                "avg_amount":   attrs.get("avg_amount", 0.0),
+                "tx_count":     attrs.get("tx_count", 0),
+                "first_tx":     attrs.get("first_tx", ""),
+                "last_tx":      attrs.get("last_tx", ""),
+            }
+            if not large_graph:
+                ed["transactions"] = attrs.get("transactions", [])
+            edges.append(ed)
 
-    # 4. Summary (with network statistics)
-    net_stats = _network_statistics(G)
+    # 4. Summary (spec-compliant — no network_statistics)
     summary: Dict[str, Any] = {
         "total_accounts_analyzed":     total_accounts,
         "suspicious_accounts_flagged": len(suspicious_accounts),
         "fraud_rings_detected":        len(fraud_rings),
         "processing_time_seconds":     round(processing_time, 3),
-        "network_statistics":          net_stats,
     }
 
     response: Dict[str, Any] = {
         "suspicious_accounts": suspicious_accounts,
         "fraud_rings":         fraud_rings,
         "summary":             summary,
-        "graph":               {"nodes": nodes, "edges": edges},
     }
-    if parse_stats:
-        response["parse_stats"] = parse_stats
+    if detail:
+        response["graph"] = {"nodes": nodes, "edges": edges}
+        if parse_stats:
+            response["parse_stats"] = parse_stats
 
     log.info(
         "Format complete: %d suspicious accounts, %d fraud rings",

@@ -25,7 +25,7 @@ import uuid
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -117,7 +117,13 @@ def health():
 
 
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
+async def analyze(
+    file: UploadFile = File(...),
+    detail: bool = Query(
+        default=False,
+        description="When true, include graph and parse_stats in the response (used by the frontend).",
+    ),
+):
     """
     Upload a CSV of financial transactions and receive a forensic analysis.
 
@@ -186,7 +192,7 @@ async def analyze(file: UploadFile = File(...)):
     # ---- 7. Format & return ----
     elapsed = time.perf_counter() - start_time
     result = format_output(
-        all_rings, account_scores, G, elapsed, total_accounts, parse_stats
+        all_rings, account_scores, G, elapsed, total_accounts, parse_stats, detail=detail
     )
 
     log.info(

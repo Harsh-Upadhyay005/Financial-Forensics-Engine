@@ -4,10 +4,16 @@ Defines the exact JSON contract the API must return.
 """
 from __future__ import annotations
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SuspiciousAccount(BaseModel):
+    """
+    Mandatory fields: account_id, suspicion_score, detected_patterns, ring_id.
+    Extra fields (e.g. risk_explanation, confidence) are allowed and preserved.
+    """
+    model_config = ConfigDict(extra="allow")
+
     account_id: str
     suspicion_score: float = Field(..., ge=0.0, le=100.0)
     detected_patterns: List[str]
@@ -15,6 +21,12 @@ class SuspiciousAccount(BaseModel):
 
 
 class FraudRing(BaseModel):
+    """
+    Mandatory fields: ring_id, member_accounts, pattern_type, risk_score.
+    Extra fields (e.g. confidence) are allowed and preserved.
+    """
+    model_config = ConfigDict(extra="allow")
+
     ring_id: str
     member_accounts: List[str]
     pattern_type: str

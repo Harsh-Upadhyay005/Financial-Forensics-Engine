@@ -90,8 +90,8 @@ _PATTERN_EXPLANATIONS: Dict[str, str] = {
     "cycle_length_3": "Participates in a 3-node circular fund routing cycle",
     "cycle_length_4": "Participates in a 4-node circular fund routing cycle",
     "cycle_length_5": "Participates in a 5-node circular fund routing cycle",
-    "fan_in": "Receives from 10+ unique senders within 72 hours (aggregator pattern)",
-    "fan_out": "Sends to 10+ unique receivers within 72 hours (disperser pattern)",
+    "fan_in": "Receives from 15+ unique senders within 72 hours (aggregator pattern)",
+    "fan_out": "Sends to 15+ unique receivers within 72 hours (disperser pattern)",
     "shell_chain": "Part of a layered chain through low-activity shell accounts",
     "round_trip": "Bi-directional flow with similar amounts (possible round-tripping)",
     "amount_anomaly": "Transaction amounts deviate >3σ from account's mean",
@@ -172,13 +172,22 @@ def calculate_scores(
         ring_id    = ring["ring_id"]
         pattern    = ring["pattern"]
         base_score = PATTERN_SCORES.get(pattern, 10.0)
+        hub        = ring.get("hub")  # set by smurf_detector for fan_in/fan_out
 
         for acc in ring["members"]:
             e = _entry(acc)
-            e["score"] += base_score
-            e["patterns"].add(pattern)
             if ring_id not in e["ring_ids"]:
                 e["ring_ids"].append(ring_id)
+            # For fan patterns, only the hub (aggregator/disperser) receives the score
+            # and pattern label. Spokes (employees, ordinary payers) are ring members
+            # only — they are NOT independently suspicious.
+            if pattern in ("fan_in", "fan_out"):
+                if acc == hub:
+                    e["score"] += base_score
+                    e["patterns"].add(pattern)
+            else:
+                e["score"] += base_score
+                e["patterns"].add(pattern)
 
     # 2. Multi-ring bonus (account belongs to more than one ring)
     for acc, e in data.items():

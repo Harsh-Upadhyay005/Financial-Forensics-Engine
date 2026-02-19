@@ -167,17 +167,19 @@ export default function SummaryTable({ rings, accounts, type }) {
                         <ConfidenceBadge value={ring.confidence} />
                       </td>
                       <td className="accounts-cell">
-                        <div className="acct-list">
-                          {(isExp ? ring.member_accounts : preview).map(a => (
-                            <span key={a} className="acct-chip">{a}</span>
-                          ))}
+                        <div className="acct-csv-wrap">
+                          <span className="acct-csv">
+                            {isExp
+                              ? ring.member_accounts.join(', ')
+                              : preview.join(', ') + (hasMore ? `, …` : '')}
+                          </span>
                           {hasMore && (
                             <button
                               className="expand-btn"
                               onClick={() => setExpandedRow(isExp ? null : ring.ring_id)}
                             >
                               <ChevronIcon open={isExp} />
-                              {isExp ? 'less' : `+${ring.member_accounts.length - 3}`}
+                              {isExp ? 'less' : `+${ring.member_accounts.length - 3} more`}
                             </button>
                           )}
                         </div>

@@ -1,41 +1,99 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, useMemo } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import './GraphVisualization.css'
 
+/* ── Pattern → Color mapping ──────────────────────────────── */
 const PATTERN_COLORS = {
-  cycle_length_3: '#ff4d6d',
-  cycle_length_4: '#ff6b35',
-  cycle_length_5: '#ffd166',
-  fan_in: '#c77dff',
-  fan_out: '#7b2fff',
-  shell_chain: '#00b4d8',
-  high_velocity: '#f77f00',
+  cycle_length_3: '#f43f5e',
+  cycle_length_4: '#fb7185',
+  cycle_length_5: '#fda4af',
+  fan_in:         '#a78bfa',
+  fan_out:        '#8b5cf6',
+  shell_chain:    '#22d3ee',
+  high_velocity:  '#f59e0b',
+  multi_ring:     '#fbbf24',
 }
 
+const PATTERN_LABELS = {
+  cycle_length_3: 'Cycle (3)',
+  cycle_length_4: 'Cycle (4)',
+  cycle_length_5: 'Cycle (5)',
+  fan_in:         'Fan-in',
+  fan_out:        'Fan-out',
+  shell_chain:    'Shell Chain',
+  high_velocity:  'High Velocity',
+  multi_ring:     'Multi Ring',
+}
+
+/* ── Node styling helpers ─────────────────────────────────── */
 function getNodeColor(node) {
-  if (!node.suspicious) return '#4ade80'
-  if (node.detected_patterns?.some(p => p.startsWith('cycle'))) return '#ff4d6d'
-  if (node.detected_patterns?.some(p => p.includes('fan'))) return '#c77dff'
-  if (node.detected_patterns?.includes('shell_chain')) return '#00b4d8'
-  return '#ffd166'
+  if (!node.suspicious) return '#10b981'
+  const p = node.detected_patterns || []
+  if (p.some(x => x.startsWith('cycle')))    return '#f43f5e'
+  if (p.includes('fan_in'))                   return '#a78bfa'
+  if (p.includes('fan_out'))                  return '#8b5cf6'
+  if (p.includes('shell_chain'))              return '#22d3ee'
+  if (p.includes('high_velocity'))            return '#f59e0b'
+  return '#fbbf24'
 }
 
 function getNodeSize(node) {
-  if (!node.suspicious) return 4
+  if (!node.suspicious) return 3.5
   const score = node.suspicion_score || 0
-  return 4 + (score / 100) * 12
+  return 4 + (score / 100) * 14
 }
 
-export default function GraphVisualization({ graphData }) {
+/* ── Legend items ──────────────────────────────────────────── */
+const LEGEND = [
+  { color: '#10b981',  label: 'Safe' },
+  { color: '#f43f5e',  label: 'Cycle' },
+  { color: '#a78bfa',  label: 'Fan-in' },
+  { color: '#8b5cf6',  label: 'Fan-out' },
+  { color: '#22d3ee',  label: 'Shell' },
+  { color: '#f59e0b',  label: 'Velocity' },
+]
+
+export default function GraphVisualization({ graphData, rings }) {
   const fgRef = useRef()
   const [selected, setSelected] = useState(null)
   const [hovered, setHovered] = useState(null)
+  const [filter, setFilter] = useState('all') // all | suspicious | safe
+  const [highlightRing, setHighlightRing] = useState(null)
+
+  // Build ring member lookup
+  const ringMembers = useMemo(() => {
+    if (!rings) return new Set()
+    if (!highlightRing) return new Set()
+    const ring = rings.find(r => r.ring_id === highlightRing)
+    return ring ? new Set(ring.member_accounts) : new Set()
+  }, [rings, highlightRing])
+
+  // Filter visible nodes
+  const processedData = useMemo(() => {
+    if (!graphData?.nodes?.length) return { nodes: [], links: [] }
+
+    let nodes = graphData.nodes.map(n => ({ ...n }))
+    if (filter === 'suspicious') nodes = nodes.filter(n => n.suspicious)
+    else if (filter === 'safe') nodes = nodes.filter(n => !n.suspicious)
+
+    const visibleIds = new Set(nodes.map(n => n.id))
+    const links = graphData.edges
+      .filter(e => visibleIds.has(e.source) && visibleIds.has(e.target))
+      .map(e => ({
+        source: e.source,
+        target: e.target,
+        total_amount: e.total_amount,
+        tx_count: e.tx_count,
+      }))
+
+    return { nodes, links }
+  }, [graphData, filter])
 
   const handleNodeClick = useCallback((node) => {
     setSelected(node)
     if (fgRef.current) {
-      fgRef.current.centerAt(node.x, node.y, 500)
-      fgRef.current.zoom(4, 500)
+      fgRef.current.centerAt(node.x, node.y, 600)
+      fgRef.current.zoom(4, 600)
     }
   }, [])
 
@@ -50,11 +108,28 @@ export default function GraphVisualization({ graphData }) {
     const size = getNodeSize(node)
     const color = getNodeColor(node)
     const isHighlighted = hovered?.id === node.id || selected?.id === node.id
+    const isRingMember  = highlightRing && ringMembers.has(node.id)
+    const isDimmed      = highlightRing && !isRingMember
 
-    // Glow effect for suspicious nodes
-    if (node.suspicious) {
+    ctx.save()
+
+    if (isDimmed) ctx.globalAlpha = 0.12
+
+    // Glow 
+    if (node.suspicious && !isDimmed) {
       ctx.shadowColor = color
-      ctx.shadowBlur = isHighlighted ? 20 : 10
+      ctx.shadowBlur  = isHighlighted ? 24 : 12
+    }
+
+    // Ring highlight outer ring
+    if (isRingMember) {
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, size + 4, 0, 2 * Math.PI)
+      ctx.strokeStyle = '#fff'
+      ctx.lineWidth = 0.6
+      ctx.setLineDash([2, 2])
+      ctx.stroke()
+      ctx.setLineDash([])
     }
 
     // Node circle
@@ -64,30 +139,42 @@ export default function GraphVisualization({ graphData }) {
     ctx.fill()
 
     // Border for highlighted
-    if (isHighlighted) {
+    if (isHighlighted && !isDimmed) {
       ctx.strokeStyle = '#fff'
-      ctx.lineWidth = 1.5
+      ctx.lineWidth = 1.8
       ctx.stroke()
     }
 
     ctx.shadowBlur = 0
 
-    // Label (only when zoomed in enough)
-    if (globalScale > 1.5 || node.suspicious) {
-      const label = node.label
-      const fontSize = Math.max(10 / globalScale, 6)
-      ctx.font = `${fontSize}px Arial`
+    // Label
+    if ((globalScale > 1.8 || node.suspicious || isRingMember) && !isDimmed) {
+      const label = node.label || node.id
+      const fontSize = Math.max(11 / globalScale, 5)
+      ctx.font = `500 ${fontSize}px Inter, sans-serif`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
-      ctx.fillStyle = '#e2e8f0'
-      ctx.fillText(label, node.x, node.y + size + 2)
+      ctx.fillStyle = isRingMember ? '#fff' : 'rgba(241, 245, 249, 0.8)'
+      ctx.fillText(label, node.x, node.y + size + 3)
     }
-  }, [hovered, selected])
+
+    ctx.restore()
+  }, [hovered, selected, highlightRing, ringMembers])
+
+  // Link color
+  const linkColor = useCallback((link) => {
+    if (!highlightRing) return 'rgba(148,163,184,0.12)'
+    const s = typeof link.source === 'object' ? link.source.id : link.source
+    const t = typeof link.target === 'object' ? link.target.id : link.target
+    if (ringMembers.has(s) && ringMembers.has(t)) return 'rgba(255,255,255,0.4)'
+    return 'rgba(148,163,184,0.04)'
+  }, [highlightRing, ringMembers])
 
   if (!graphData?.nodes?.length) {
     return (
       <div className="graph-empty">
-        <p>No graph data available.</p>
+        <div className="empty-icon">◉</div>
+        <p>No graph data available</p>
       </div>
     )
   }
@@ -97,123 +184,235 @@ export default function GraphVisualization({ graphData }) {
 
   return (
     <div className="graph-container">
-      {/* Legend */}
-      <div className="graph-legend">
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#4ade80' }} />
-          Safe ({safeCount})
+      {/* ── Toolbar ───────────────────────────────────────── */}
+      <div className="graph-toolbar">
+        <div className="graph-toolbar-left">
+          {/* Legend */}
+          <div className="legend-group">
+            {LEGEND.map(l => (
+              <div key={l.label} className="legend-item">
+                <span className="legend-dot" style={{ background: l.color }} />
+                <span>{l.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#ff4d6d' }} />
-          Cycle
+
+        <div className="graph-toolbar-right">
+          {/* Ring filter */}
+          {rings && rings.length > 0 && (
+            <select
+              className="graph-select"
+              value={highlightRing || ''}
+              onChange={e => setHighlightRing(e.target.value || null)}
+            >
+              <option value="">All Rings</option>
+              {rings.map(r => (
+                <option key={r.ring_id} value={r.ring_id}>
+                  {r.ring_id} — {r.pattern_type} ({r.member_accounts.length})
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Node filter */}
+          <div className="filter-pills">
+            {[
+              { key: 'all', label: `All (${graphData.nodes.length})` },
+              { key: 'suspicious', label: `Flagged (${suspiciousCount})` },
+              { key: 'safe', label: `Safe (${safeCount})` },
+            ].map(f => (
+              <button
+                key={f.key}
+                className={`filter-pill ${filter === f.key ? 'active' : ''}`}
+                onClick={() => setFilter(f.key)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Zoom controls */}
+          <div className="zoom-controls">
+            <button className="zoom-btn" onClick={() => fgRef.current?.zoom(fgRef.current.zoom() * 1.4, 300)} title="Zoom in">+</button>
+            <button className="zoom-btn" onClick={() => fgRef.current?.zoom(fgRef.current.zoom() * 0.7, 300)} title="Zoom out">−</button>
+            <button className="zoom-btn" onClick={() => fgRef.current?.zoomToFit(400, 40)} title="Fit view">⊞</button>
+          </div>
         </div>
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#c77dff' }} />
-          Fan-in/out
-        </div>
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#00b4d8' }} />
-          Shell
-        </div>
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#ffd166' }} />
-          Multi-pattern
-        </div>
-        <span className="legend-sep" />
-        <span className="legend-tip">Larger nodes = higher suspicion score • Click a node for details</span>
       </div>
 
-      {/* Graph */}
+      {/* ── Graph Canvas ──────────────────────────────────── */}
       <div className="graph-canvas">
         <ForceGraph2D
           ref={fgRef}
-          graphData={{
-            nodes: graphData.nodes.map(n => ({ ...n })),
-            links: graphData.edges.map(e => ({
-              source: e.source,
-              target: e.target,
-              total_amount: e.total_amount,
-              tx_count: e.tx_count,
-            })),
-          }}
+          graphData={processedData}
           nodeCanvasObject={paintNode}
           nodeCanvasObjectMode={() => 'replace'}
           onNodeClick={handleNodeClick}
           onNodeHover={handleNodeHover}
           onBackgroundClick={handleBgClick}
-          linkColor={() => 'rgba(148,163,184,0.25)'}
-          linkWidth={0.8}
+          linkColor={linkColor}
+          linkWidth={0.6}
           linkDirectionalArrowLength={4}
           linkDirectionalArrowRelPos={1}
-          linkDirectionalParticles={2}
-          linkDirectionalParticleSpeed={0.004}
-          linkDirectionalParticleColor={() => 'rgba(108,99,255,0.7)'}
-          backgroundColor="#0f1117"
+          linkDirectionalParticles={1}
+          linkDirectionalParticleSpeed={0.003}
+          linkDirectionalParticleWidth={1.5}
+          linkDirectionalParticleColor={() => 'rgba(99,102,241,0.5)'}
+          backgroundColor="transparent"
           width={undefined}
-          height={540}
-          cooldownTicks={80}
+          height={580}
+          cooldownTicks={100}
+          d3AlphaDecay={0.02}
+          d3VelocityDecay={0.3}
         />
       </div>
 
-      {/* Node Detail Panel */}
+      {/* ── Hover tooltip ─────────────────────────────────── */}
+      {hovered && !selected && (
+        <div className="hover-tooltip">
+          <span className="tooltip-dot" style={{ background: getNodeColor(hovered) }} />
+          <span className="tooltip-id">{hovered.id}</span>
+          {hovered.suspicious && (
+            <span className="tooltip-score">Score: {hovered.suspicion_score}</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Node Detail Panel ─────────────────────────────── */}
       {selected && (
         <div className="node-panel">
           <div className="node-panel-header">
-            <h3>
-              <span
-                className="panel-dot"
-                style={{ background: getNodeColor(selected) }}
-              />
-              {selected.id}
-            </h3>
-            <button className="close-btn" onClick={() => setSelected(null)}>✕</button>
+            <div className="panel-title-row">
+              <span className="panel-dot" style={{ background: getNodeColor(selected) }} />
+              <h3>{selected.id}</h3>
+            </div>
+            <button className="close-btn" onClick={() => setSelected(null)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
+
+          {selected.suspicious && (
+            <div className="panel-score-bar">
+              <div className="score-track">
+                <div
+                  className="score-fill"
+                  style={{
+                    width: `${selected.suspicion_score}%`,
+                    background: selected.suspicion_score >= 70 ? 'var(--danger)' :
+                                selected.suspicion_score >= 40 ? 'var(--warning)' : 'var(--safe)',
+                  }}
+                />
+              </div>
+              <span className="score-label">{selected.suspicion_score}/100</span>
+            </div>
+          )}
+
           <div className="node-panel-body">
             <div className="meta-grid">
               <div className="meta-item">
-                <span className="meta-label">Total Transactions</span>
+                <span className="meta-label">Transactions</span>
                 <span className="meta-value">{selected.tx_count}</span>
               </div>
               <div className="meta-item">
                 <span className="meta-label">Total Sent</span>
-                <span className="meta-value">${selected.total_sent?.toLocaleString()}</span>
+                <span className="meta-value">${Number(selected.total_sent || 0).toLocaleString()}</span>
               </div>
               <div className="meta-item">
                 <span className="meta-label">Total Received</span>
-                <span className="meta-value">${selected.total_received?.toLocaleString()}</span>
+                <span className="meta-value">${Number(selected.total_received || 0).toLocaleString()}</span>
               </div>
-              {selected.suspicious && (
-                <>
-                  <div className="meta-item">
-                    <span className="meta-label">Suspicion Score</span>
-                    <span className="meta-value score">{selected.suspicion_score}/100</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">Ring ID</span>
-                    <span className="meta-value">{selected.ring_id}</span>
-                  </div>
-                </>
+              <div className="meta-item">
+                <span className="meta-label">Net Flow</span>
+                <span className={`meta-value ${(selected.net_flow || 0) >= 0 ? 'positive' : 'negative'}`}>
+                  {(selected.net_flow || 0) >= 0 ? '+' : ''}${Number(selected.net_flow || 0).toLocaleString()}
+                </span>
+              </div>
+              {selected.sent_count !== undefined && (
+                <div className="meta-item">
+                  <span className="meta-label">Sent Count</span>
+                  <span className="meta-value">{selected.sent_count}</span>
+                </div>
+              )}
+              {selected.received_count !== undefined && (
+                <div className="meta-item">
+                  <span className="meta-label">Recv Count</span>
+                  <span className="meta-value">{selected.received_count}</span>
+                </div>
+              )}
+              {selected.first_tx && (
+                <div className="meta-item full">
+                  <span className="meta-label">First Transaction</span>
+                  <span className="meta-value mono">{selected.first_tx}</span>
+                </div>
+              )}
+              {selected.last_tx && (
+                <div className="meta-item full">
+                  <span className="meta-label">Last Transaction</span>
+                  <span className="meta-value mono">{selected.last_tx}</span>
+                </div>
               )}
             </div>
-            {selected.detected_patterns?.length > 0 && (
-              <div className="patterns-section">
-                <span className="meta-label">Detected Patterns</span>
-                <div className="pattern-tags">
-                  {selected.detected_patterns.map(p => (
-                    <span
-                      key={p}
-                      className="pattern-tag"
-                      style={{ background: PATTERN_COLORS[p] || '#6c63ff' }}
-                    >
-                      {p}
-                    </span>
-                  ))}
-                </div>
-              </div>
+
+            {/* Suspicious details */}
+            {selected.suspicious && (
+              <>
+                {selected.ring_ids?.length > 0 && (
+                  <div className="panel-section">
+                    <span className="meta-label">Ring Membership</span>
+                    <div className="ring-tags">
+                      {selected.ring_ids.map(rid => (
+                        <button
+                          key={rid}
+                          className={`ring-tag ${highlightRing === rid ? 'active' : ''}`}
+                          onClick={() => setHighlightRing(highlightRing === rid ? null : rid)}
+                        >
+                          {rid}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {selected.detected_patterns?.length > 0 && (
+                  <div className="panel-section">
+                    <span className="meta-label">Detected Patterns</span>
+                    <div className="pattern-tags">
+                      {selected.detected_patterns.map(p => (
+                        <span
+                          key={p}
+                          className="pattern-tag"
+                          style={{
+                            background: (PATTERN_COLORS[p] || '#6366f1') + '18',
+                            color: PATTERN_COLORS[p] || '#6366f1',
+                            border: `1px solid ${(PATTERN_COLORS[p] || '#6366f1')}33`,
+                          }}
+                        >
+                          {PATTERN_LABELS[p] || p}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
       )}
+
+      {/* ── Stats footer ──────────────────────────────────── */}
+      <div className="graph-footer">
+        <span>{processedData.nodes.length} nodes</span>
+        <span className="graph-footer-sep">•</span>
+        <span>{processedData.links.length} edges</span>
+        <span className="graph-footer-sep">•</span>
+        <span className="text-danger">{suspiciousCount} flagged</span>
+        {highlightRing && (
+          <>
+            <span className="graph-footer-sep">•</span>
+            <span className="text-accent">Highlighting: {highlightRing}</span>
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,13 +1,17 @@
 """
 formatter.py – Produce the final API response in exact spec format.
 
-JSON contract (spec-compliant)
-------------------------------
+JSON contract (spec-compliant + enrichments)
+----------------------------------------------
 {
-  "suspicious_accounts": [{account_id, suspicion_score, detected_patterns, ring_id}],
-  "fraud_rings":         [{ring_id, member_accounts, pattern_type, risk_score}],
+  "suspicious_accounts": [{account_id, suspicion_score, detected_patterns, ring_id,
+                           risk_explanation}],
+  "fraud_rings":         [{ring_id, member_accounts, pattern_type, risk_score,
+                           confidence}],
   "summary":            {total_accounts_analyzed, suspicious_accounts_flagged,
-                          fraud_rings_detected, processing_time_seconds},
+                          fraud_rings_detected, processing_time_seconds,
+                          network_statistics: {graph_density, connected_components,
+                                               avg_clustering, avg_degree}},
   "graph":              {nodes: [...], edges: [...]},
   "parse_stats":         {...}   // extra diagnostic info (optional)
 }
@@ -40,6 +44,152 @@ def _risk_score(ring: Dict) -> float:
     return min(round(base + max(n - 3, 0) * 0.5, 1), 100.0)
 
 
+def _confidence_score(ring: Dict) -> float:
+    """
+    Calculate a confidence score (0.0–1.0) for a fraud ring based on
+    how strongly the pattern evidence supports the detection.
+
+    Higher confidence for:
+    - Cycle patterns (mathematically certain)
+    - Smaller, tighter rings
+    - Round-trips with high amount similarity
+    - Multiple merged patterns confirming the same ring
+    """
+    pattern = ring["pattern"]
+    n = len(ring["members"])
+
+    # Base confidence by pattern type
+    base_conf = {
+        "cycle_length_3": 0.95,
+        "cycle_length_4": 0.90,
+        "cycle_length_5": 0.82,
+        "fan_in": 0.78,
+        "fan_out": 0.78,
+        "shell_chain": 0.65,
+        "round_trip": 0.80,
+    }.get(pattern, 0.60)
+
+    # Size penalty: very large rings are slightly less confident
+    if n > 10:
+        base_conf -= min((n - 10) * 0.01, 0.15)
+
+    # Bonus for merged patterns (multiple independent detections)
+    merged = ring.get("merged_patterns", [])
+    if len(merged) > 1:
+        base_conf = min(base_conf + 0.08, 1.0)
+
+    # Round-trips: use amount similarity if available
+    if pattern == "round_trip" and "similarity" in ring:
+        base_conf = max(base_conf, ring["similarity"])
+
+    return round(min(max(base_conf, 0.0), 1.0), 3)
+
+
+def _network_statistics(G: nx.DiGraph) -> Dict[str, Any]:
+    """Compute graph-level network statistics for the summary."""
+    n_nodes = G.number_of_nodes()
+    n_edges = G.number_of_edges()
+
+    stats: Dict[str, Any] = {
+        "total_nodes": n_nodes,
+        "total_edges": n_edges,
+        "graph_density": round(nx.density(G), 6) if n_nodes > 0 else 0.0,
+        "avg_degree": round((2 * n_edges) / n_nodes, 2) if n_nodes > 0 else 0.0,
+    }
+
+    # Connected components (on undirected view)
+    try:
+        undirected = G.to_undirected()
+        stats["connected_components"] = nx.number_connected_components(undirected)
+    except Exception:
+        stats["connected_components"] = 0
+
+    # Average clustering coefficient (skip for large graphs)
+    if n_nodes <= 1000:
+        try:
+            stats["avg_clustering"] = round(
+                nx.average_clustering(G.to_undirected()), 4
+            )
+        except Exception:
+            stats["avg_clustering"] = 0.0
+    else:
+        stats["avg_clustering"] = None
+
+    return stats
+
+
+def _compute_community_ids(G: nx.DiGraph) -> Dict[str, int]:
+    """
+    Detect communities using Louvain method.
+    Returns mapping of node_id → community_id.
+    """
+    if G.number_of_nodes() == 0:
+        return {}
+    try:
+        undirected = G.to_undirected()
+        communities = nx.community.louvain_communities(undirected, seed=42)
+        mapping = {}
+        for idx, community in enumerate(communities):
+            for node in community:
+                mapping[node] = idx
+        return mapping
+    except Exception as exc:
+        log.warning("Community detection failed: %s", exc)
+        return {}
+
+
+def _temporal_profile(G: nx.DiGraph, node: str) -> Dict[str, Any] | None:
+    """
+    Build a temporal activity profile for a node based on edge timestamps.
+    Returns hourly activity distribution.
+    """
+    try:
+        attrs = G.nodes[node]
+        first_tx = attrs.get("first_tx", "")
+        last_tx = attrs.get("last_tx", "")
+        if not first_tx or not last_tx:
+            return None
+
+        # Collect all transaction timestamps from edges
+        hours: list = []
+        for _, _, edata in G.edges(node, data=True):
+            for tx in edata.get("transactions", []):
+                ts_str = tx.get("timestamp", "")
+                if ts_str and len(ts_str) >= 13:
+                    try:
+                        hour = int(ts_str[11:13])
+                        hours.append(hour)
+                    except (ValueError, IndexError):
+                        pass
+        for u, _, edata in G.in_edges(node, data=True):
+            for tx in edata.get("transactions", []):
+                ts_str = tx.get("timestamp", "")
+                if ts_str and len(ts_str) >= 13:
+                    try:
+                        hour = int(ts_str[11:13])
+                        hours.append(hour)
+                    except (ValueError, IndexError):
+                        pass
+
+        if not hours:
+            return None
+
+        # Build hourly distribution
+        hourly = [0] * 24
+        for h in hours:
+            hourly[h] += 1
+
+        peak_hour = hourly.index(max(hourly))
+
+        return {
+            "hourly_distribution": hourly,
+            "peak_hour": peak_hour,
+            "active_hours": sum(1 for h in hourly if h > 0),
+        }
+    except Exception:
+        return None
+
+
 def format_output(
     rings: List[Dict],
     account_scores: Dict[str, Dict],
@@ -60,7 +210,7 @@ def format_output(
     total_accounts  : unique account count from the raw CSV
     parse_stats     : optional parse diagnostic info
     """
-    # 1. Fraud rings
+    # 1. Fraud rings (with confidence)
     fraud_rings: List[Dict] = []
     for ring in rings:
         fraud_rings.append({
@@ -68,10 +218,11 @@ def format_output(
             "member_accounts": ring["members"],
             "pattern_type":    ring["pattern"],
             "risk_score":      _risk_score(ring),
+            "confidence":      _confidence_score(ring),
         })
     fraud_rings.sort(key=lambda r: r["risk_score"], reverse=True)
 
-    # 2. Suspicious accounts
+    # 2. Suspicious accounts (with risk_explanation)
     suspicious_accounts: List[Dict] = []
     for acc_id, d in account_scores.items():
         if d["score"] <= 0:
@@ -83,12 +234,14 @@ def format_output(
             "suspicion_score":   d["score"],
             "detected_patterns": d["patterns"],
             "ring_id":           primary_ring,
+            "risk_explanation":  d.get("risk_explanation", ""),
         })
     suspicious_accounts.sort(key=lambda x: x["suspicion_score"], reverse=True)
 
-    # 3. Graph payload
+    # 3. Graph payload (with community_id and temporal_profile)
     suspicious_ids = {a["account_id"] for a in suspicious_accounts}
     large_graph = G.number_of_nodes() > _GRAPH_PAYLOAD_NODE_CAP
+    community_map = _compute_community_ids(G)
 
     nodes: List[Dict] = []
     for node, attrs in G.nodes(data=True):
@@ -104,6 +257,7 @@ def format_output(
             "received_count": attrs.get("received_count", 0),
             "first_tx":       attrs.get("first_tx", ""),
             "last_tx":        attrs.get("last_tx", ""),
+            "community_id":   community_map.get(node),
         }
         if node in suspicious_ids:
             acc_info = account_scores.get(node, {})
@@ -111,6 +265,12 @@ def format_output(
             nd["detected_patterns"] = acc_info.get("patterns", [])
             nd["ring_id"]           = (acc_info.get("ring_ids") or [""])[0]
             nd["ring_ids"]          = acc_info.get("ring_ids", [])
+            nd["risk_explanation"]  = acc_info.get("risk_explanation", "")
+
+            # Add temporal profile for suspicious nodes
+            tp = _temporal_profile(G, node)
+            if tp:
+                nd["temporal_profile"] = tp
         nodes.append(nd)
 
     edges: List[Dict] = []
@@ -128,12 +288,14 @@ def format_output(
             ed["transactions"] = attrs.get("transactions", [])
         edges.append(ed)
 
-    # 4. Summary
+    # 4. Summary (with network statistics)
+    net_stats = _network_statistics(G)
     summary: Dict[str, Any] = {
         "total_accounts_analyzed":     total_accounts,
         "suspicious_accounts_flagged": len(suspicious_accounts),
         "fraud_rings_detected":        len(fraud_rings),
         "processing_time_seconds":     round(processing_time, 3),
+        "network_statistics":          net_stats,
     }
 
     response: Dict[str, Any] = {

@@ -42,6 +42,26 @@ SCORE_MULTI_RING_BONUS: float = 10.0   # bonus per extra ring membership beyond 
 SCORE_CENTRALITY_MAX: float = 10.0     # max bonus from betweenness centrality
 HIGH_VELOCITY_TX_PER_DAY: float = float(os.getenv("HIGH_VELOCITY_TX_PER_DAY", "5.0"))
 
+# New pattern scores
+SCORE_AMOUNT_ANOMALY: float = 18.0
+SCORE_ROUND_TRIP: float = 20.0
+SCORE_RAPID_MOVEMENT: float = 20.0
+SCORE_STRUCTURING: float = 15.0
+
+# ── Amount anomaly detection ───────────────────────────────────────────────────
+AMOUNT_ANOMALY_STDDEV: float = float(os.getenv("AMOUNT_ANOMALY_STDDEV", "3.0"))
+
+# ── Bi-directional / round-trip detection ──────────────────────────────────────
+ROUND_TRIP_AMOUNT_TOLERANCE: float = float(os.getenv("ROUND_TRIP_AMOUNT_TOLERANCE", "0.2"))
+
+# ── Rapid movement detection ──────────────────────────────────────────────────
+RAPID_MOVEMENT_MINUTES: float = float(os.getenv("RAPID_MOVEMENT_MINUTES", "30.0"))
+
+# ── Amount structuring detection ───────────────────────────────────────────────
+STRUCTURING_THRESHOLD: float = float(os.getenv("STRUCTURING_THRESHOLD", "10000.0"))
+STRUCTURING_MARGIN: float = float(os.getenv("STRUCTURING_MARGIN", "0.15"))
+STRUCTURING_MIN_TX: int = int(os.getenv("STRUCTURING_MIN_TX", "3"))
+
 # ── Risk weights for fraud_rings ───────────────────────────────────────────────
 RING_RISK: dict = {
     "cycle_length_3": 95.0,
@@ -50,4 +70,5 @@ RING_RISK: dict = {
     "fan_in":  75.0,
     "fan_out": 75.0,
     "shell_chain": 70.0,
+    "round_trip": 82.0,
 }

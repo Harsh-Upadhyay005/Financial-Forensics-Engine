@@ -8,6 +8,11 @@ Scoring model
 3. High-velocity bonus    – accounts transacting > HIGH_VELOCITY_TX_PER_DAY per day
 4. Network centrality     – small bonus based on betweenness centrality (skipped
                              for large graphs to stay within 30-second budget)
+5. Amount anomaly         – accounts with transactions >3 std dev from their mean
+6. Round-trip             – bi-directional flows with similar amounts (2-node cycles)
+7. Rapid movement         – accounts with very short receive-to-forward dwell times
+8. Structuring            – accounts sending multiple amounts just below thresholds
+9. Risk explanations      – human-readable explanation string per account
 
 All scores are capped at 100.0 and returned sorted descending.
 """
@@ -24,6 +29,8 @@ from .config import (
     SCORE_FAN_IN, SCORE_FAN_OUT, SCORE_SHELL,
     SCORE_HIGH_VELOCITY, SCORE_MULTI_RING_BONUS, SCORE_CENTRALITY_MAX,
     HIGH_VELOCITY_TX_PER_DAY,
+    SCORE_AMOUNT_ANOMALY, SCORE_ROUND_TRIP, SCORE_RAPID_MOVEMENT,
+    SCORE_STRUCTURING,
 )
 
 log = logging.getLogger(__name__)
@@ -35,6 +42,7 @@ PATTERN_SCORES: Dict[str, float] = {
     "fan_in":         SCORE_FAN_IN,
     "fan_out":        SCORE_FAN_OUT,
     "shell_chain":    SCORE_SHELL,
+    "round_trip":     SCORE_ROUND_TRIP,
 }
 
 # Graphs larger than this skip betweenness centrality (expensive)
@@ -78,31 +86,88 @@ def _centrality_scores(G: nx.DiGraph) -> Dict[str, float]:
         return {}
 
 
+_PATTERN_EXPLANATIONS: Dict[str, str] = {
+    "cycle_length_3": "Participates in a 3-node circular fund routing cycle",
+    "cycle_length_4": "Participates in a 4-node circular fund routing cycle",
+    "cycle_length_5": "Participates in a 5-node circular fund routing cycle",
+    "fan_in": "Receives from 10+ unique senders within 72 hours (aggregator pattern)",
+    "fan_out": "Sends to 10+ unique receivers within 72 hours (disperser pattern)",
+    "shell_chain": "Part of a layered chain through low-activity shell accounts",
+    "round_trip": "Bi-directional flow with similar amounts (possible round-tripping)",
+    "amount_anomaly": "Transaction amounts deviate >3σ from account's mean",
+    "rapid_movement": "Receives and forwards funds within minutes (pass-through)",
+    "structuring": "Multiple transactions just below reporting threshold ($10K)",
+    "high_velocity": "Unusually high transaction rate (>5 tx/day average)",
+    "multi_ring": "Belongs to multiple distinct fraud rings",
+}
+
+
+def _build_risk_explanation(patterns: list, ring_ids: list, extra: dict) -> str:
+    """Build a human-readable risk explanation for an account."""
+    parts = []
+    for p in patterns:
+        explanation = _PATTERN_EXPLANATIONS.get(p)
+        if explanation:
+            parts.append(explanation)
+
+    if len(ring_ids) > 1:
+        parts.append(f"Connected to {len(ring_ids)} fraud rings: {', '.join(ring_ids)}")
+    elif ring_ids:
+        parts.append(f"Member of {ring_ids[0]}")
+
+    if extra.get("min_dwell_minutes") is not None:
+        parts.append(f"Fastest pass-through: {extra['min_dwell_minutes']} min")
+    if extra.get("structured_tx_count"):
+        parts.append(
+            f"{extra['structured_tx_count']} transactions in ${extra.get('avg_amount', 0):,.0f} "
+            f"range (just below $10K threshold)"
+        )
+
+    return ". ".join(parts) + "." if parts else ""
+
+
 def calculate_scores(
     rings: List[Dict],
     df: pd.DataFrame,
     G: nx.DiGraph | None = None,
+    anomaly_accounts: set | None = None,
+    rapid_accounts: dict | None = None,
+    structuring_accounts: dict | None = None,
 ) -> Dict[str, Dict]:
     """
     Build a per-account suspicion score map.
 
+    Parameters
+    ----------
+    rings                : merged ring list with ring_id assigned
+    df                   : transaction DataFrame
+    G                    : NetworkX DiGraph (for centrality)
+    anomaly_accounts     : set of account IDs with amount anomalies
+    rapid_accounts       : dict mapping account_id → {min_dwell_minutes, rapid_count}
+    structuring_accounts : dict mapping account_id → {structured_tx_count, avg_amount, ...}
+
     Returns
     -------
     dict mapping account_id to:
-        score    : float         – 0–100, capped
-        patterns : list[str]     – unique detected pattern names
-        ring_ids : list[str]     – all ring IDs this account belongs to
+        score            : float      – 0–100, capped
+        patterns         : list[str]  – unique detected pattern names
+        ring_ids         : list[str]  – all ring IDs this account belongs to
+        risk_explanation : str        – human-readable explanation
     """
+    anomaly_accounts = anomaly_accounts or set()
+    rapid_accounts = rapid_accounts or {}
+    structuring_accounts = structuring_accounts or {}
+
     vel_accounts = _velocity_accounts(df)
     centrality   = _centrality_scores(G) if G is not None else {}
     data: Dict[str, Dict] = {}
 
     def _entry(acc: str) -> Dict:
         if acc not in data:
-            data[acc] = {"score": 0.0, "patterns": set(), "ring_ids": []}
+            data[acc] = {"score": 0.0, "patterns": set(), "ring_ids": [], "_extra": {}}
         return data[acc]
 
-    # 1. Pattern contributions
+    # 1. Pattern contributions (ring-based)
     for ring in rings:
         ring_id    = ring["ring_id"]
         pattern    = ring["pattern"]
@@ -136,10 +201,36 @@ def calculate_scores(
                 bonus = (c_val / max_c) * SCORE_CENTRALITY_MAX if max_c > 0 else 0
                 data[acc]["score"] += bonus
 
-    # 5. Normalise
+    # 5. Amount anomaly bonus
+    for acc in anomaly_accounts:
+        e = _entry(acc)
+        e["score"] += SCORE_AMOUNT_ANOMALY
+        e["patterns"].add("amount_anomaly")
+
+    # 6. Rapid movement bonus
+    for acc, info in rapid_accounts.items():
+        e = _entry(acc)
+        e["score"] += SCORE_RAPID_MOVEMENT
+        e["patterns"].add("rapid_movement")
+        e["_extra"]["min_dwell_minutes"] = info.get("min_dwell_minutes")
+        e["_extra"]["rapid_count"] = info.get("rapid_count")
+
+    # 7. Structuring bonus
+    for acc, info in structuring_accounts.items():
+        e = _entry(acc)
+        e["score"] += SCORE_STRUCTURING
+        e["patterns"].add("structuring")
+        e["_extra"]["structured_tx_count"] = info.get("structured_tx_count")
+        e["_extra"]["avg_amount"] = info.get("avg_amount")
+
+    # 8. Normalise and build explanations
     for acc, e in data.items():
         e["score"]    = min(round(e["score"], 1), 100.0)
         e["patterns"] = sorted(e["patterns"])   # deterministic order
+        e["risk_explanation"] = _build_risk_explanation(
+            e["patterns"], e["ring_ids"], e.get("_extra", {})
+        )
+        del e["_extra"]  # internal only, not exposed
 
     log.info("Scoring complete: %d accounts scored", len(data))
     return data

@@ -188,18 +188,12 @@ def calculate_scores(
                 if acc == hub:
                     e["score"] += base_score
                     e["patterns"].add(pattern)
-            # For shell chains, only true intermediary shells get the pattern label.
-            # Source (L1) and destination (L4) are entry/exit nodes — they get the
-            # ring_id association but a lower shell score so precision is maintained.
+            # For shell chains, ring members ARE the shell intermediaries (Option A).
+            # Source and destination nodes are excluded from members entirely, so
+            # every member here is a confirmed pass-through shell account.
             elif pattern == "shell_chain":
-                if acc in shell_intermediaries:
-                    e["score"] += base_score
-                    e["patterns"].add(pattern)
-                else:
-                    # Entry/exit node: flag with a reduced score (half) and no label.
-                    # Still suspicious (they chose to route through shells) but less
-                    # certain than the confirmed pass-through nodes.
-                    e["score"] += base_score * 0.5
+                e["score"] += base_score
+                e["patterns"].add(pattern)
             else:
                 e["score"] += base_score
                 e["patterns"].add(pattern)

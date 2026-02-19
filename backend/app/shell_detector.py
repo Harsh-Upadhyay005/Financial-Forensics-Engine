@@ -126,11 +126,14 @@ def detect_shell_networks(G: nx.DiGraph) -> List[Dict]:
                     new_hops >= SHELL_MIN_CHAIN
                     and all(n in shell_nodes for n in intermediaries)
                 ):
-                    key = tuple(new_path)
+                    key = tuple(intermediaries)  # deduplicate by intermediary set
                     if key not in seen_paths:
                         seen_paths.add(key)
                         rings.append({
-                            "members": new_path,
+                            # members = only the shell intermediaries (Option A).
+                            # Source and destination are NOT flagged as suspicious;
+                            # they are entry/exit nodes, not the shell accounts.
+                            "members": list(intermediaries),
                             "pattern": "shell_chain",
                             "chain_length": new_hops,
                             "shell_intermediaries": intermediaries,

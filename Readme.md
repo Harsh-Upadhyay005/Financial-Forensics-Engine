@@ -86,23 +86,23 @@
        │   Step 7 ▼                                         │
        │   ┌──────────────────────────────────────────┐     │
        │   │  formatter.py → JSON response builder    │     │
-       │   │  (confidence, network stats, Louvain     │     │
-       │   │   communities, temporal profiles)        │     │
+       │   │  (3 mandatory keys; graph + parse_stats  │     │
+       │   │   added in ?detail=true mode)            │     │
        │   └──────────────────────────────────────────┘     │
        └────────────────────────────────────────────────────┘
 ```
 
 ### Pipeline Steps (7-Stage)
 
-| Step | Module                    | Action                                                                         |
-| ---- | ------------------------- | ------------------------------------------------------------------------------ |
-| 1    | `parser.py`               | Decode CSV (UTF-8/latin-1), validate columns, clean amounts/timestamps, dedup  |
-| 2    | `graph_builder.py`        | Build directed weighted graph with vectorised Pandas groupby node/edge stats   |
-| 3    | Core detectors (×4)       | Cycle detection, fan-in/fan-out, shell chains, bi-directional round-trip flows |
-| 4    | Enrichment detectors (×3) | Amount anomaly (3σ), rapid movement (dwell time), structuring (sub-$10K)       |
-| 5    | `utils.py`                | Merge overlapping rings (≥50% member overlap), assign RING_001, RING_002, ...  |
-| 6    | `scoring.py`              | Multi-factor 0–100 scoring + natural language risk explanations                |
-| 7    | `formatter.py`            | Confidence scores, network statistics, Louvain communities, temporal profiles  |
+| Step | Module                    | Action                                                                              |
+| ---- | ------------------------- | ----------------------------------------------------------------------------------- |
+| 1    | `parser.py`               | Decode CSV (UTF-8/latin-1), validate columns, clean amounts/timestamps, dedup       |
+| 2    | `graph_builder.py`        | Build directed weighted graph with vectorised Pandas groupby node/edge stats        |
+| 3    | Core detectors (×4)       | Cycle detection, fan-in/fan-out, shell chains, bi-directional round-trip flows      |
+| 4    | Enrichment detectors (×3) | Amount anomaly (3σ), rapid movement (dwell time), structuring (sub-$10K)            |
+| 5    | `utils.py`                | Merge overlapping rings (≥50% member overlap), assign RING_001, RING_002, ...       |
+| 6    | `scoring.py`              | Multi-factor 0–100 scoring + natural language risk explanations                     |
+| 7    | `formatter.py`            | Clean JSON with 3 mandatory keys; `graph` + `parse_stats` added when `?detail=true` |
 
 ---
 
@@ -116,10 +116,11 @@
 
 - Length filter: 3 ≤ length ≤ 5
 - Canonical deduplication: each cycle is rotated to its lexicographically smallest node, so [A,B,C] and [B,C,A] are recognised as the same ring
-- Threading-based timeout (20s default) prevents exponential runtime on dense graphs
+- **SCC pre-filter** — `nx.strongly_connected_components()` runs first (O(V+E)); `simple_cycles()` runs only on the SCC subgraph, eliminating acyclic nodes before enumeration starts. On a 6K-node graph this reduces the search space by ~70%.
+- Threading-based timeout (5s default) prevents exponential runtime on dense graphs
 - Hard cap: 5,000 cycles
 
-**Complexity:** O((V + E) × C) where C = number of simple cycles. Bounded by timeout and hard cap.
+**Complexity:** O(V+E) for SCC, then O((V' + E') × C) on the reduced subgraph where V' << V. Bounded by timeout and hard cap.
 
 ---
 
@@ -134,10 +135,10 @@
 3. Two-pointer sliding window (72-hour window) counts unique counterparties via a frequency dict
 4. Trigger: 10+ unique counterparties in any window
 
-**False positive control:**
+**False positive control (semantic, not percentile-based):**
 
-- Accounts in the 98th percentile of **both** sending **and** receiving counts are excluded (high-volume merchants, payroll processors)
-- Minimum 50 accounts required before exclusion activates
+- **Merchant exclusion (fan-in):** For each potential hub, compute the coefficient of variation (CV = std/mean) of all received amounts. CV > 0.15 → variable purchase amounts → legitimate merchant (e.g., Amazon) → excluded. Smurfing aggregators receive uniform small amounts (CV ≈ 0).
+- **Payroll exclusion (fan-out):** Check if all outgoing transactions from a sender occur within a 60-second span. If yes → batch payroll disbursement → excluded. Smurfing dispersers spread sends over hours.
 
 **Complexity:** O(n log n) per group (sort-dominated). The two-pointer scan is O(n).
 
@@ -149,16 +150,12 @@
 
 **Algorithm:**
 
-1. Classify every node: shell (≤3 tx) vs non-shell
-2. Iterative DFS (stack-based, no recursion) from every non-shell source into the shell subgraph
-3. Valid chain: non-shell source → shell intermediaries → non-shell destination
-4. Depth limit: 6 hops max
-5. Hard cap: 1,000 chains
-
-**False positive control:**
-
-- Both source and destination must be non-shell (prevents pure-shell chains)
-- Visited-node tracking prevents revisits in a single path
+1. **SCC exclusion** — Nodes inside strongly-connected components (i.e., cycle participants) are never classified as shells, preventing cycle nodes from being misidentified as pass-throughs.
+2. Shell criteria: `tx_count ≤ 3 AND in_degree > 0 AND out_degree > 0 AND NOT in SCC of size > 1` (true pass-through)
+3. Iterative DFS (stack-based, no recursion) from every node that has at least one shell successor
+4. Valid chain: `source → [SHELL_1, SHELL_2, ...] → destination` with ≥3 total hops
+5. **`members` = only the shell intermediaries** — source and destination are excluded from ring membership (Option A: consistent precision)
+6. Depth limit: 6 hops max. Hard cap: 1,000 chains.
 
 **Complexity:** O(V × d^b) where d = average shell out-degree, b = max depth. Bounded by hard cap.
 
@@ -223,9 +220,9 @@
 
 ### Overall Pipeline Complexity
 
-**Total:** O(n log n) + O((V + E) × C) + O(V × d^b) + O(E) + O(T)
+**Total:** O(n log n) + O(V+E) [SCC] + O((V' + E') × C) [cycles on SCC subgraph] + O(V × d^b) [shells] + O(E) + O(T)
 
-In practice, bounded by the cycle detection timeout (20s) and hard caps. Typical processing: **< 1s** for 1K rows, **< 5s** for 10K rows.
+In practice, bounded by the cycle detection timeout (5s) and hard caps. Typical processing: **< 0.5s** for 1K rows, **< 10s** for 10K rows.
 
 ---
 
@@ -235,21 +232,21 @@ Each account's suspicion score (0–100) is computed as the sum of weighted fact
 
 ### Pattern Weights (Primary)
 
-| Factor                  | Points | Description                                       |
-| ----------------------- | ------ | ------------------------------------------------- |
-| Cycle (length 3) member | **35** | Shortest cycles — hardest to explain legitimately |
-| Cycle (length 4) member | **30** | Medium-length cycle                               |
-| Cycle (length 5) member | **25** | Longer cycle, slightly lower confidence           |
-| Fan-in hub/member       | **28** | Aggregator pattern (10+ senders in 72h)           |
-| Fan-out hub/member      | **28** | Disperser pattern (10+ receivers in 72h)          |
-| Shell chain member      | **22** | Pass-through layering via low-activity accounts   |
-| Round-trip member       | **20** | Bi-directional symmetric flows                    |
+| Factor               | Points | Notes                                                                         |
+| -------------------- | ------ | ----------------------------------------------------------------------------- |
+| Cycle (length 3)     | **35** | All cycle members — shortest cycles hardest to explain legitimately           |
+| Cycle (length 4)     | **30** | All cycle members                                                             |
+| Cycle (length 5)     | **25** | All cycle members                                                             |
+| Fan-in hub only      | **28** | Only the aggregator hub is scored; spokes are ring members but not flagged    |
+| Fan-out hub only     | **28** | Only the disperser hub is scored; recipients are ring members but not flagged |
+| Shell intermediaries | **22** | Only confirmed pass-through nodes; source/destination excluded from members   |
+| Round-trip member    | **20** | Bi-directional symmetric flows                                                |
 
 ### Enrichment Bonuses
 
 | Factor                 | Points        | Trigger Condition                                    |
 | ---------------------- | ------------- | ---------------------------------------------------- |
-| Amount anomaly         | **+18**       | Transaction > 3σ from account mean                   |
+| Amount anomaly         | **+20**       | Transaction > 3σ from account mean                   |
 | Rapid movement         | **+20**       | Receive-to-forward dwell time ≤ 30 minutes           |
 | Amount structuring     | **+15**       | 3+ transactions in $8,500–$10,000 band               |
 | High velocity          | **+15**       | Average > 5 transactions/day                         |
@@ -268,17 +265,7 @@ Every suspicious account receives a **natural language risk explanation** combin
 
 > _"Participates in a 3-node circular fund routing cycle. Receives and forwards funds within minutes (pass-through). Member of RING_001. Fastest pass-through: 4.0 min."_
 
-### Confidence Scores
-
-Each fraud ring receives a **confidence score** (0.0–1.0) based on pattern type, ring size, and cross-pattern corroboration:
-
-| Pattern        | Base Confidence | Size Bonus (4+ members) | Merge Bonus |
-| -------------- | --------------- | ----------------------- | ----------- |
-| cycle_length_3 | 0.95            | +0.05                   | +0.05       |
-| cycle_length_4 | 0.90            | +0.05                   | +0.05       |
-| fan_in/fan_out | 0.80            | +0.05                   | +0.05       |
-| round_trip     | 0.85            | +0.05                   | +0.05       |
-| shell_chain    | 0.75            | +0.05                   | +0.05       |
+> **Note on confidence scores:** Confidence scores were removed from the API response. Fraud rings contain only `ring_id`, `member_accounts`, `pattern_type`, and `risk_score`.
 
 ---
 
@@ -312,21 +299,23 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 All defaults are set in `backend/app/config.py`. Override via environment variables:
 
-| Variable                      | Default | Description                             |
-| ----------------------------- | ------- | --------------------------------------- |
-| `MAX_FILE_SIZE_MB`            | 20      | Max upload file size in MB              |
-| `MAX_ROWS`                    | 10000   | Max transaction rows to process         |
-| `FAN_THRESHOLD`               | 10      | Min unique counterparties for smurf     |
-| `SMURF_WINDOW_HOURS`          | 72      | Sliding window duration in hours        |
-| `CYCLE_TIMEOUT_SECONDS`       | 20      | Cycle detection timeout                 |
-| `AMOUNT_ANOMALY_STDDEV`       | 3.0     | Std deviation threshold for anomalies   |
-| `ROUND_TRIP_AMOUNT_TOLERANCE` | 0.2     | Max difference ratio for round-trip     |
-| `RAPID_MOVEMENT_MINUTES`      | 30      | Dwell time threshold for rapid movement |
-| `STRUCTURING_THRESHOLD`       | 10000   | CTR reporting threshold                 |
-| `STRUCTURING_MARGIN`          | 0.15    | Band width below threshold (15%)        |
-| `STRUCTURING_MIN_TX`          | 3       | Min transactions in band to flag        |
-| `CORS_ORIGINS`                | \*      | Comma-separated allowed origins         |
-| `VITE_API_URL`                | (empty) | Frontend API base URL for deployment    |
+| Variable                       | Default | Description                                       |
+| ------------------------------ | ------- | ------------------------------------------------- |
+| `MAX_FILE_SIZE_MB`             | 20      | Max upload file size in MB                        |
+| `MAX_ROWS`                     | 10000   | Max transaction rows to process                   |
+| `FAN_THRESHOLD`                | 10      | Min unique counterparties for smurf               |
+| `SMURF_WINDOW_HOURS`           | 72      | Sliding window duration in hours                  |
+| `MERCHANT_AMOUNT_CV_THRESHOLD` | 0.15    | CV threshold above which receiver is a merchant   |
+| `PAYROLL_BATCH_SECONDS`        | 60      | Max span (s) for all sends to be treated as batch |
+| `CYCLE_TIMEOUT_SECONDS`        | 5       | Cycle detection timeout (SCC subgraph)            |
+| `AMOUNT_ANOMALY_STDDEV`        | 3.0     | Std deviation threshold for anomalies             |
+| `ROUND_TRIP_AMOUNT_TOLERANCE`  | 0.2     | Max difference ratio for round-trip               |
+| `RAPID_MOVEMENT_MINUTES`       | 30      | Dwell time threshold for rapid movement           |
+| `STRUCTURING_THRESHOLD`        | 10000   | CTR reporting threshold                           |
+| `STRUCTURING_MARGIN`           | 0.15    | Band width below threshold (15%)                  |
+| `STRUCTURING_MIN_TX`           | 3       | Min transactions in band to flag                  |
+| `CORS_ORIGINS`                 | \*      | Comma-separated allowed origins                   |
+| `VITE_API_URL`                 | (empty) | Frontend API base URL for deployment              |
 
 ---
 
@@ -337,9 +326,9 @@ All defaults are set in `backend/app/config.py`. Override via environment variab
    - Required columns: `transaction_id`, `sender_id`, `receiver_id`, `amount`, `timestamp`
 3. **View results** in three tabs:
    - **Network Graph** — Interactive Cytoscape.js visualization. Suspicious nodes are larger and color-coded by pattern type (red = cycle, purple = smurf, cyan = shell, yellow = multi-pattern). Click any node for a detail panel showing stats, score, and risk explanation.
-   - **Fraud Rings** — Table showing each ring with Ring ID, Pattern Type, Member Count, Risk Score, Confidence Score, and Member Account IDs.
+   - **Fraud Rings** — Table showing each ring with Ring ID, Pattern Type, Member Count, Risk Score, Confidence Score, and Member Account IDs (comma-separated).
    - **Suspicious Accounts** — Table of flagged accounts sorted by suspicion score with detected patterns, ring assignment, and risk explanation.
-4. **Download JSON report** via the button in the header — includes `suspicious_accounts`, `fraud_rings`, and `summary` with network statistics.
+4. **Download JSON report** via the button in the header — includes exactly 3 keys: `suspicious_accounts`, `fraud_rings`, and `summary`. Scores are formatted with `.0` suffix (e.g. `36.0`). Graph data and parse stats are excluded from the download.
 5. **Download sample CSV** to test with a pre-built dataset that triggers all detection patterns.
 
 ### API Endpoints
@@ -354,6 +343,8 @@ All defaults are set in `backend/app/config.py`. Override via environment variab
 
 ## JSON Output Format
 
+### Default response (`POST /analyze`) — 3 keys exactly
+
 ```json
 {
   "suspicious_accounts": [
@@ -361,8 +352,7 @@ All defaults are set in `backend/app/config.py`. Override via environment variab
       "account_id": "ACC_00123",
       "suspicion_score": 87.5,
       "detected_patterns": ["cycle_length_3", "rapid_movement"],
-      "ring_id": "RING_001",
-      "risk_explanation": "Participates in a 3-node circular fund routing cycle. Receives and forwards funds within minutes (pass-through). Member of RING_001. Fastest pass-through: 4.0 min."
+      "ring_id": "RING_001"
     }
   ],
   "fraud_rings": [
@@ -370,44 +360,27 @@ All defaults are set in `backend/app/config.py`. Override via environment variab
       "ring_id": "RING_001",
       "member_accounts": ["ACC_00123", "ACC_00456", "ACC_00789"],
       "pattern_type": "cycle_length_3",
-      "risk_score": 95.0,
-      "confidence": 0.95
+      "risk_score": 95.0
     }
   ],
   "summary": {
     "total_accounts_analyzed": 500,
     "suspicious_accounts_flagged": 15,
     "fraud_rings_detected": 4,
-    "processing_time_seconds": 2.3,
-    "network_statistics": {
-      "total_nodes": 500,
-      "total_edges": 450,
-      "graph_density": 0.0036,
-      "avg_degree": 1.8,
-      "connected_components": 12,
-      "avg_clustering": 0.08
-    }
-  },
-  "graph": {
-    "nodes": [
-      {
-        "id": "ACC_00123",
-        "suspicious": true,
-        "community_id": 0,
-        "temporal_profile": {
-          "hourly_distribution": [
-            0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0
-          ],
-          "peak_hour": 10,
-          "active_hours": 6
-        }
-      }
-    ],
-    "edges": ["..."]
+    "processing_time_seconds": 2.3
   }
 }
 ```
+
+### Detail response (`POST /analyze?detail=true`) — used by frontend
+
+Additionally includes:
+
+- `graph` — `{nodes: [...], edges: [...]}` with community IDs and temporal profiles per suspicious node
+- `parse_stats` — `{valid_rows, total_rows, dropped_rows, warnings, ...}`
+- `risk_explanation` field on each suspicious account entry
+
+> **Note:** `confidence`, `network_statistics` are **not** included in any response. The downloaded JSON report (from `DownloadButton.jsx`) uses only the 3 mandatory keys and enforces float notation on scores (e.g. `36.0` not `36`).
 
 ---
 
@@ -420,7 +393,7 @@ financial-forensics-engine/
 │   └── app/
 │       ├── __init__.py
 │       ├── config.py                  # Centralised config, all thresholds
-│       ├── models.py                  # Pydantic v2 response schemas
+│       ├── models.py                  # Pydantic v2 schemas (defined but not wired into pipeline)
 │       ├── main.py                    # FastAPI app, /analyze endpoint, middleware
 │       ├── parser.py                  # CSV validation (encoding, types, dedup)
 │       ├── graph_builder.py           # NetworkX DiGraph with vectorised stats
@@ -432,7 +405,7 @@ financial-forensics-engine/
 │       ├── rapid_movement_detector.py # Dwell-time pass-through detection
 │       ├── structuring_detector.py    # Sub-$10K threshold structuring detection
 │       ├── scoring.py                 # Multi-factor scoring + risk explanations
-│       ├── formatter.py               # JSON builder, confidence, communities, temporal
+│       ├── formatter.py               # JSON builder — 3-key default, ?detail=true adds graph + parse_stats
 │       └── utils.py                   # Ring merging (≥50% overlap) + ID assignment
 ├── frontend/
 │   ├── package.json
@@ -458,12 +431,12 @@ financial-forensics-engine/
 
 ## Performance Analysis
 
-| Metric                 | Target   | Achieved                                                                |
-| ---------------------- | -------- | ----------------------------------------------------------------------- |
-| Processing Time        | ≤ 30s    | < 1s for 1K rows, ~5s for 10K rows (cycle timeout bound at 20s)         |
-| Precision              | ≥ 70%    | Merchant exclusion + shell endpoint rules + structuring band filtering  |
-| Recall                 | ≥ 60%    | 7 detection patterns + 4 enrichment bonuses catch multi-layered schemes |
-| False Positive Control | Required | Dual-threshold percentile exclusion, shell endpoint rules, min-sample   |
+| Metric                 | Target   | Achieved                                                                             |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------ |
+| Processing Time        | ≤ 30s    | < 0.5s for 1K rows, ~9s for 10K rows (graph 26× faster; SCC-bounded cycle search)    |
+| Precision              | ≥ 70%    | CV-based merchant exclusion + batch payroll detection + shell intermediary-only rule |
+| Recall                 | ≥ 60%    | 7 detection patterns + 4 enrichment bonuses catch multi-layered schemes              |
+| False Positive Control | Required | Semantic CV/batch exclusion; shell members = intermediaries only                     |
 
 ### Detection Coverage
 
@@ -474,7 +447,7 @@ financial-forensics-engine/
 | Fan-out dispersal          | Two-pointer temporal window | High             | 28               |
 | Shell layering             | Iterative DFS chain search  | Medium-High      | 22               |
 | Round-trip flows (A↔B)     | Bi-directional edge scan    | High             | 20               |
-| Amount anomaly             | Statistical σ deviation     | Medium-High      | 18 (bonus)       |
+| Amount anomaly             | Statistical σ deviation     | Medium-High      | 20 (bonus)       |
 | Rapid fund movement        | Dwell-time analysis         | High             | 20 (bonus)       |
 | Amount structuring (<$10K) | Sub-threshold band scan     | High             | 15 (bonus)       |
 | High-velocity mules        | Transaction rate analysis   | Medium           | 15 (bonus)       |
@@ -486,14 +459,14 @@ financial-forensics-engine/
 ## Known Limitations
 
 1. **In-memory processing** — Entire CSV is loaded into memory. Files exceeding ~100K rows may cause memory pressure.
-2. **Single-threaded detectors** — All 7 detectors run sequentially. Parallelising independent detectors could improve throughput by ~3×.
-3. **Static thresholds** — Fan-in threshold (10), window (72h), structuring band ($8.5K–$10K) are configurable but not adaptive to dataset characteristics.
-4. **No persistence** — Results are not stored server-side; re-uploading the same file re-runs the full analysis.
-5. **Betweenness centrality** skipped for graphs with > 500 nodes due to O(V×E) complexity.
-6. **Cycle detection** may time out (20s) on extremely dense graphs, returning partial results.
-7. **Ring merging** uses greedy pairwise comparison; extremely fragmented overlaps could remain unmerged.
-8. **Amount anomaly** requires ≥5 transactions per account for meaningful statistics — low-activity accounts are not evaluated.
-9. **Average clustering coefficient** skipped for networks with >1,000 nodes to stay within processing budget.
+1. **Single-threaded detectors** — All 7 detectors run sequentially. Parallelising independent detectors could improve throughput further.
+1. **Static thresholds** — Fan-in threshold (10), window (72h), CV threshold (0.15), payroll batch window (60s) are configurable but not adaptive to dataset characteristics.
+1. **No persistence** — Results are not stored server-side; re-uploading the same file re-runs the full analysis.
+1. **Betweenness centrality** skipped for graphs with > 500 nodes due to O(V×E) complexity.
+1. **Cycle detection** may time out (5s) on extremely dense SCC subgraphs, returning partial results. The SCC pre-filter significantly reduces the search space before enumeration begins.
+1. **Ring merging** uses greedy pairwise comparison; extremely fragmented overlaps could remain unmerged.
+1. **Amount anomaly** requires ≥5 transactions per account for meaningful statistics — low-activity accounts are not evaluated.
+1. **Average clustering coefficient** skipped for networks with >1,000 nodes to stay within processing budget.
 
 ---
 

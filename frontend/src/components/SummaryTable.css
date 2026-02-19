@@ -187,6 +187,21 @@
   white-space: nowrap;
 }
 
+/* comma-separated plain text variant */
+.acct-csv-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.acct-csv {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  word-break: break-word;
+  line-height: 1.55;
+}
+
 .expand-btn {
   background: none;
   border: none;

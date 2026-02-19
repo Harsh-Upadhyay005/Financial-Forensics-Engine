@@ -58,8 +58,11 @@ def detect_cycles(G: nx.DiGraph) -> List[Dict]:
     # Cycles can only exist within strongly-connected components of size ≥ CYCLE_MIN_LEN.
     # Building a subgraph of just those nodes before calling simple_cycles avoids
     # iterating over the (often large) acyclic majority of the graph.
+    # Re-use precomputed SCCs from build_graph if available (avoids a duplicate
+    # O(V+E) pass on every request).
+    sccs = G.graph.get("_sccs") or list(nx.strongly_connected_components(G))
     scc_nodes: set = set()
-    for scc in nx.strongly_connected_components(G):
+    for scc in sccs:
         if len(scc) >= CYCLE_MIN_LEN:
             scc_nodes.update(scc)
 

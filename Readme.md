@@ -298,7 +298,11 @@ financial-forensics-engine/
 
 | Name          | Role                  |
 | ------------- | --------------------- |
-| _Add names_   | _Add roles_           |
+| Ayush Rai | _Add roles_           |
+| Harsh Upadhyay | _Add roles_           |
+| Prerna Negi | _Add roles_           |
+| Shubhanshu Singh | _Add roles_           |
+
 
 ---
 
